@@ -1,11 +1,12 @@
 """
-app.py — Streamlit app para emparejamiento de escalerilla por categorías.
-Incluye 3 pestañas: Generar Ronda, Cargar Resultados, Ranking.
+app.py — Costa Sport · Escalerilla
 """
 from __future__ import annotations
 import io
 import json
+import base64
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -28,19 +29,139 @@ from resultados import (
 )
 
 # ============================================================================
-#  Configuración
+#  Configuración + Branding
 # ============================================================================
+LOGO_PATH = Path("assets/logo.png")
+
 st.set_page_config(
-    page_title="Emparejador Escalerilla",
-    page_icon="🎾",
+    page_title="Costa Sport — Escalerilla",
+    page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "🎾",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("🎾 Emparejador Escalerilla")
-st.caption(
-    f"Categorías A/B/C/D · 1 interno + 1 cruzado por jugador · "
-    f"Ganado: {PUNTOS_GANADO} · Perdido: {PUNTOS_PERDIDO} · WO: {PUNTOS_WO_FAVOR}"
-)
+# Paleta Costa Sport
+COSTA_BLUE = "#33B9F3"
+COSTA_BLUE_DARK = "#1A8FC4"
+COSTA_BLUE_LIGHT = "#7FD4FA"
+DARK_BG = "#0E1117"
+DARK_CARD = "#1A1F2E"
+ACCENT_YELLOW = "#FFD54F"   # pelota de tenis
+SUCCESS_GREEN = "#66BB6A"   # cancha
+DANGER_RED = "#EF5350"
+
+# CSS personalizado
+st.markdown(f"""
+<style>
+    /* Header del logo */
+    .costa-header {{
+        background: linear-gradient(135deg, {DARK_CARD} 0%, #0E1117 100%);
+        border-left: 4px solid {COSTA_BLUE};
+        border-radius: 8px;
+        padding: 1.2rem 1.5rem;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1.2rem;
+    }}
+    .costa-header h1 {{
+        margin: 0;
+        font-size: 1.8rem;
+        color: white;
+        letter-spacing: 0.5px;
+    }}
+    .costa-header p {{
+        margin: 0.2rem 0 0 0;
+        color: {COSTA_BLUE_LIGHT};
+        font-size: 0.9rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+    }}
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 8px;
+        background-color: {DARK_CARD};
+        padding: 6px;
+        border-radius: 10px;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        height: 44px;
+        padding: 0 20px;
+        background-color: transparent;
+        border-radius: 6px;
+        color: #B0B7C3;
+        font-weight: 500;
+    }}
+    .stTabs [aria-selected="true"] {{
+        background-color: {COSTA_BLUE} !important;
+        color: white !important;
+        font-weight: 600;
+    }}
+
+    /* Botón primario */
+    .stButton button[kind="primary"] {{
+        background-color: {COSTA_BLUE};
+        border: none;
+        font-weight: 600;
+    }}
+    .stButton button[kind="primary"]:hover {{
+        background-color: {COSTA_BLUE_DARK};
+    }}
+
+    /* Métricas */
+    [data-testid="stMetric"] {{
+        background-color: {DARK_CARD};
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 3px solid {COSTA_BLUE};
+    }}
+
+    /* Footer */
+    .costa-footer {{
+        text-align: center;
+        color: #6B7280;
+        font-size: 0.8rem;
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid #2A2F3E;
+    }}
+    .costa-footer strong {{
+        color: {COSTA_BLUE};
+    }}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ============================================================================
+#  Helper: header con logo
+# ============================================================================
+def render_header():
+    if LOGO_PATH.exists():
+        with open(LOGO_PATH, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode()
+        logo_html = f'<img src="data:image/png;base64,{logo_b64}" height="80" style="border-radius: 6px;">'
+    else:
+        logo_html = '<div style="font-size: 3rem;">🎾</div>'
+
+    st.markdown(f"""
+    <div class="costa-header">
+        {logo_html}
+        <div>
+            <h1>Escalerilla</h1>
+            <p>Costa Sport · Tennis Club</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_footer():
+    st.markdown(f"""
+    <div class="costa-footer">
+        <strong>Costa Sport · Tennis Club</strong> — Escalerilla {datetime.now().year}
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # ============================================================================
 #  Estado de sesión
@@ -50,10 +171,15 @@ if "historial" not in st.session_state:
 if "ultima_ronda" not in st.session_state:
     st.session_state.ultima_ronda = None
 
+
 # ============================================================================
 #  Sidebar
 # ============================================================================
 with st.sidebar:
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), use_container_width=True)
+
+    st.divider()
     st.header("📥 Entradas")
     archivo_excel = st.file_uploader(
         "Lista de jugadores (Excel)",
@@ -74,12 +200,9 @@ with st.sidebar:
             historial_cargado = json.loads(archivo_historial.read().decode("utf-8"))
             if "internas" in historial_cargado or "cruces" in historial_cargado or "partidos" in historial_cargado:
                 st.session_state.historial = historial_cargado
-                st.success(
-                    f"Historial cargado ✅\n"
-                    f"({len(historial_cargado.get('partidos', []))} partidos)"
-                )
+                st.success(f"Cargado ✅ ({len(historial_cargado.get('partidos', []))} partidos)")
             else:
-                st.warning("Historial con formato antiguo, se ignora.")
+                st.warning("Formato antiguo, se ignora.")
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -92,41 +215,55 @@ with st.sidebar:
             file_name=f"historial_{timestamp}.json",
             mime="application/json",
             use_container_width=True,
-            help="Descárgalo y guárdalo para no perder el progreso.",
+            help="Guárdalo para no perder el progreso.",
         )
 
-    st.divider()
     if st.button("🔄 Reiniciar todo", use_container_width=True):
         st.session_state.historial = {}
         st.session_state.ultima_ronda = None
-        st.success("Historial reiniciado.")
+        st.success("Reiniciado.")
         st.rerun()
 
+
 # ============================================================================
-#  Validación inicial
+#  Header
+# ============================================================================
+render_header()
+
+# ============================================================================
+#  Validación
 # ============================================================================
 if archivo_excel is None:
     st.info("👈 Sube tu Excel en la barra lateral para empezar.")
-    st.markdown("""
-    ### 📋 Formato esperado del Excel
-    | Ranking | Jugador        |
-    |---------|----------------|
-    | 1       | Marcelo Rios   |
-    | 2       | Roger Federer  |
-    | ...     | ...            |
 
-    ### 🎯 Cómo funciona la escalerilla
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### 📋 Formato esperado del Excel")
+        st.markdown("""
+        | Ranking | Jugador        |
+        |---------|----------------|
+        | 1       | Marcelo Rios   |
+        | 2       | Roger Federer  |
+        | ...     | ...            |
+        """)
+
+    with col2:
+        st.markdown("### 🏆 Sistema de puntaje")
+        st.markdown(f"""
+        - 🥇 **Partido ganado:** {PUNTOS_GANADO} pts
+        - 🥈 **Partido perdido:** {PUNTOS_PERDIDO} pts
+        - ⚠️ **W.O. a favor:** {PUNTOS_WO_FAVOR} pts (debe evidenciarse)
+        """)
+
+    st.markdown("### 🎯 Cómo funciona")
+    st.markdown("""
     - Los jugadores se dividen en **N categorías** (default 4) según ranking.
     - Cada ronda, cada jugador tiene:
         - **1 partido interno** vs alguien de su misma categoría
         - **1 partido cruzado** vs alguien de la categoría adyacente (A↔B, C↔D, ...)
     - No se repiten parejas hasta completar el ciclo.
-
-    ### 🏆 Puntaje
-    - **Partido ganado:** 200 puntos
-    - **Partido perdido:** 25 puntos
-    - **W.O. a favor:** 50 puntos (debe evidenciarse)
     """)
+    render_footer()
     st.stop()
 
 try:
@@ -141,6 +278,7 @@ if "Ranking" not in df_jugadores.columns or "Jugador" not in df_jugadores.column
 
 jugadores = df_jugadores.to_dict("records")
 categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
+
 
 # ============================================================================
 #  Pestañas
@@ -175,7 +313,6 @@ with tab_ronda:
 
     st.divider()
 
-    # Aviso si hay partidos pendientes
     pendientes = partidos_pendientes(st.session_state.historial)
     if pendientes:
         st.warning(f"⚠️ Hay **{len(pendientes)} partido(s) pendiente(s)** sin resultado de rondas anteriores.")
@@ -209,7 +346,7 @@ with tab_ronda:
         st.download_button(
             label="📊 Descargar ronda en Excel",
             data=buffer,
-            file_name=f"ronda_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            file_name=f"costa_sport_ronda_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
@@ -219,47 +356,37 @@ with tab_ronda:
 with tab_resultados:
     st.subheader("📝 Cargar resultados de partidos")
 
-    todos_los_partidos = st.session_state.historial.get("partidos", [])
-    if not todos_los_partidos:
+    todos = st.session_state.historial.get("partidos", [])
+    if not todos:
         st.info("Aún no hay partidos generados. Ve a la pestaña **Generar Ronda** primero.")
     else:
         pendientes = partidos_pendientes(st.session_state.historial)
         completados = partidos_completados(st.session_state.historial)
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total partidos", len(todos_los_partidos))
+        c1.metric("Total partidos", len(todos))
         c2.metric("Pendientes", len(pendientes))
         c3.metric("Completados", len(completados))
 
-        # --- Filtros ---
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            mostrar = st.radio(
-                "Mostrar",
-                options=["Pendientes", "Completados", "Todos"],
-                horizontal=True,
-            )
+            mostrar = st.radio("Mostrar", options=["Pendientes", "Completados", "Todos"], horizontal=True)
         with col_f2:
-            bloques_disponibles = sorted({p["bloque"] for p in todos_los_partidos})
-            filtro_bloque = st.multiselect(
-                "Filtrar por bloque",
-                options=bloques_disponibles,
-                default=bloques_disponibles,
-            )
+            bloques_disponibles = sorted({p["bloque"] for p in todos})
+            filtro_bloque = st.multiselect("Filtrar por bloque", options=bloques_disponibles, default=bloques_disponibles)
 
         if mostrar == "Pendientes":
             lista = pendientes
         elif mostrar == "Completados":
             lista = completados
         else:
-            lista = todos_los_partidos
+            lista = todos
 
         lista = [p for p in lista if p["bloque"] in filtro_bloque]
 
         if not lista:
             st.info("No hay partidos para mostrar con esos filtros.")
         else:
-            # --- Selector de partido ---
             def label_partido(p):
                 estado = "✅" if p["resultado"] else "⏳"
                 return (
@@ -268,11 +395,7 @@ with tab_resultados:
                     f"vs #{p['jugador_2']['Ranking']} {p['jugador_2']['Jugador']}"
                 )
 
-            partido_sel = st.selectbox(
-                "Selecciona un partido",
-                options=lista,
-                format_func=label_partido,
-            )
+            partido_sel = st.selectbox("Selecciona un partido", options=lista, format_func=label_partido)
 
             st.divider()
 
@@ -289,7 +412,6 @@ with tab_resultados:
                 col_vs.markdown("### ↔")
                 col_j2.markdown(f"#### #{j2['Ranking']} — {j2['Jugador']}")
 
-                # Mostrar resultado actual si existe
                 if partido_sel["resultado"]:
                     st.info(f"Resultado registrado: **{formatear_marcador(partido_sel['resultado'])}**")
                     if st.button("🗑️ Borrar resultado", key="borrar"):
@@ -299,11 +421,9 @@ with tab_resultados:
 
                 st.divider()
 
-                # --- Form para cargar/actualizar resultado ---
                 tipo_resultado = st.radio(
                     "Tipo de resultado",
                     options=["Normal (partido jugado)", f"W.O. a favor de {j1['Jugador']}", f"W.O. a favor de {j2['Jugador']}"],
-                    horizontal=False,
                 )
 
                 with st.form(key=f"form_{partido_sel['id']}"):
@@ -339,30 +459,18 @@ with tab_resultados:
                     if submitted:
                         try:
                             if tipo == "normal":
-                                # Validar que se ingresaron games
                                 if all(s["games_1"] == 0 and s["games_2"] == 0 for s in sets):
                                     st.error("Debes ingresar los games de al menos un set.")
                                 else:
-                                    # Filtrar sets vacíos (todos 0-0)
                                     sets_validos = [s for s in sets if not (s["games_1"] == 0 and s["games_2"] == 0)]
-                                    registrar_resultado(
-                                        st.session_state.historial,
-                                        partido_sel["id"],
-                                        tipo="normal",
-                                        sets=sets_validos,
-                                    )
+                                    registrar_resultado(st.session_state.historial, partido_sel["id"], tipo="normal", sets=sets_validos)
                                     st.success("✅ Resultado guardado.")
                                     st.rerun()
                             else:
                                 if not nota_wo or not nota_wo.strip():
                                     st.error("Debes ingresar la evidencia/nota del W.O.")
                                 else:
-                                    registrar_resultado(
-                                        st.session_state.historial,
-                                        partido_sel["id"],
-                                        tipo=tipo,
-                                        nota_wo=nota_wo.strip(),
-                                    )
+                                    registrar_resultado(st.session_state.historial, partido_sel["id"], tipo=tipo, nota_wo=nota_wo.strip())
                                     st.success("✅ W.O. registrado.")
                                     st.rerun()
                         except ValueError as e:
@@ -379,12 +487,11 @@ with tab_ranking:
     else:
         df_ranking = calcular_ranking(st.session_state.historial, jugadores)
 
-        # Métricas resumen
         total_partidos = len(partidos_completados(st.session_state.historial))
         lider = df_ranking.iloc[0]
         c1, c2, c3 = st.columns(3)
         c1.metric("Partidos jugados", total_partidos)
-        c2.metric("Líder", lider["Jugador"], f"{lider['Puntos']} pts")
+        c2.metric("Líder 🥇", lider["Jugador"], f"{lider['Puntos']} pts")
         c3.metric("Jugadores activos", int((df_ranking["PJ"] > 0).sum()))
 
         st.dataframe(
@@ -398,11 +505,10 @@ with tab_ranking:
         )
 
         st.caption(
-            f"Criterio de orden: 1° Puntos · 2° Partidos ganados · 3° Ranking inicial · "
-            f"PJ=Partidos jugados · G=Ganados · P=Perdidos · WO+=WO a favor · WO-=WO en contra"
+            "Orden: 1° Puntos · 2° Partidos ganados · 3° Ranking inicial · "
+            "PJ=Jugados · G=Ganados · P=Perdidos · WO+=WO a favor · WO-=WO en contra"
         )
 
-        # Descarga
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             df_ranking.to_excel(writer, index=False, sheet_name="Ranking")
@@ -410,6 +516,9 @@ with tab_ranking:
         st.download_button(
             label="📊 Descargar ranking en Excel",
             data=buffer,
-            file_name=f"ranking_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            file_name=f"costa_sport_ranking_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+# Footer
+render_footer()
