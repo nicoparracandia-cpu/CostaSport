@@ -73,8 +73,8 @@ if archivo_excel is None:
     ### 📋 Formato esperado del Excel
     | Ranking | Jugador        |
     |---------|----------------|
-    | 1       | Diego Beas     |
-    | 2       | Jaime Hussein  |
+    | 1       | Marcelo Rios   |
+    | 2       | Roger Federer  |
     | ...     | ...            |
 
     ### 🎯 Cómo funciona la escalerilla
