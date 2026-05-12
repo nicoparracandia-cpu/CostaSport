@@ -1,61 +1,58 @@
 # 🎾 Emparejador Escalerilla
 
-App para generar emparejamientos tipo **escalerilla** por categorías, sin repetir parejas hasta completar el ciclo.
+App para generar emparejamientos tipo **escalerilla** por categorías, cargar resultados y mantener ranking acumulado de toda la temporada.
 
 ## 📋 Cómo funciona
 
-- Lee una lista de jugadores desde Excel (columnas `Ranking` y `Jugador`).
-- Divide automáticamente en **N categorías** (default 4) según ranking, llenando las mejores primero.
+- Divide la lista en **N categorías** (default 4) según ranking, llenando las mejores primero.
   - Ej: 46 jugadores → **A=12, B=12, C=11, D=11**
 - Cada ronda, cada jugador tiene:
   - **1 partido interno** (vs su misma categoría)
   - **1 partido cruzado** (A↔B, C↔D, ...)
-- Usa round-robin (método del círculo) para internos y rotación para cruces.
-- Mantiene historial separado por bloque para no repetir parejas.
+- No se repiten parejas hasta completar el ciclo.
 
-## 🚀 Uso
+## 🏆 Sistema de puntaje
 
-### App Streamlit (web)
+| Resultado | Puntos |
+|---|---|
+| Partido ganado | 200 |
+| Partido perdido | 25 |
+| W.O. a favor (te presentaste) | 50 |
+| W.O. en contra (no te presentaste) | 0 |
+
+> El W.O. debe evidenciarse (foto, mensaje, etc.) al registrarlo en la app.
+
+## 🚀 Uso (App web)
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Flujo:
-1. Sube tu Excel con la lista.
-2. (Opcional) Sube el `historial.json` de rondas anteriores.
-3. Presiona **Generar siguiente ronda**.
-4. Descarga el historial actualizado y el Excel de la ronda.
+### Flujo de uso
 
-### Script local
-
-```bash
-pip install -r requirements.txt
-python emparejador.py lista_.xlsx 4
-```
-
-Argumentos: `[ruta_excel] [n_categorias]` (ambos opcionales).
-
-Genera:
-- `historial.json` — estado para la próxima ronda.
-- `rondas/ronda_YYYYMMDD_HHMMSS.xlsx` — partidos de esta ronda.
+1. **Sidebar:** sube tu Excel con la lista de jugadores.
+2. **Tab "Generar Ronda":** presiona el botón para crear los partidos de la siguiente ronda.
+3. **Tab "Cargar Resultados":** ingresa los resultados (sets y games, o W.O.) de cada partido.
+4. **Tab "Ranking":** mira el ranking acumulado de la temporada.
+5. **Descarga `historial.json`** desde el sidebar para no perder el progreso. La próxima vez súbelo al inicio para continuar.
 
 ## 📊 Formato del Excel
 
 | Ranking | Jugador          |
 |---------|------------------|
-| 1       | Diego Beas       |
-| 2       | Jaime Hussein    |
+| 1       | Marcelo Rios     |
+| 2       | Roger Federer    |
 | ...     | ...              |
 
 ## 📁 Estructura
 
 ```
 emparejador-grupos/
-├── app.py              # App Streamlit
-├── emparejador.py      # Script local
-├── pairing.py          # Lógica compartida
+├── app.py              # App Streamlit con 3 pestañas
+├── emparejador.py      # Script local (solo generación de rondas)
+├── pairing.py          # Lógica de emparejamiento
+├── resultados.py       # Lógica de resultados y ranking
 ├── requirements.txt
 ├── README.md
 └── .gitignore
