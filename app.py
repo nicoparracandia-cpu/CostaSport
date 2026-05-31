@@ -3,7 +3,6 @@ app.py — Costa Sport · Escalerilla
 """
 from __future__ import annotations
 import io
-import json
 import base64
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +26,12 @@ from resultados import (
     formatear_marcador,
     PUNTOS_GANADO, PUNTOS_PERDIDO, PUNTOS_WO_FAVOR,
 )
+from db import (
+    cargar_historial,
+    guardar_historial,
+    get_jugadores,
+    actualizar_jugadores_desde_excel,
+)
 
 # ============================================================================
 #  Configuración + Branding
@@ -40,20 +45,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Paleta Costa Sport
 COSTA_BLUE = "#33B9F3"
 COSTA_BLUE_DARK = "#1A8FC4"
 COSTA_BLUE_LIGHT = "#7FD4FA"
 DARK_BG = "#0E1117"
 DARK_CARD = "#1A1F2E"
-ACCENT_YELLOW = "#FFD54F"   # pelota de tenis
-SUCCESS_GREEN = "#66BB6A"   # cancha
+ACCENT_YELLOW = "#FFD54F"
+SUCCESS_GREEN = "#66BB6A"
 DANGER_RED = "#EF5350"
 
-# CSS personalizado
 st.markdown(f"""
 <style>
-    /* Header del logo */
     .costa-header {{
         background: linear-gradient(135deg, {DARK_CARD} 0%, #0E1117 100%);
         border-left: 4px solid {COSTA_BLUE};
@@ -77,8 +79,6 @@ st.markdown(f"""
         letter-spacing: 1.5px;
         text-transform: uppercase;
     }}
-
-    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {{
         gap: 8px;
         background-color: {DARK_CARD};
@@ -98,8 +98,6 @@ st.markdown(f"""
         color: white !important;
         font-weight: 600;
     }}
-
-    /* Botón primario */
     .stButton button[kind="primary"] {{
         background-color: {COSTA_BLUE};
         border: none;
@@ -108,16 +106,12 @@ st.markdown(f"""
     .stButton button[kind="primary"]:hover {{
         background-color: {COSTA_BLUE_DARK};
     }}
-
-    /* Métricas */
     [data-testid="stMetric"] {{
         background-color: {DARK_CARD};
         padding: 1rem;
         border-radius: 8px;
         border-left: 3px solid {COSTA_BLUE};
     }}
-
-    /* Footer */
     .costa-footer {{
         text-align: center;
         color: #6B7280;
@@ -134,7 +128,7 @@ st.markdown(f"""
 
 
 # ============================================================================
-#  Helper: header con logo
+#  Helpers
 # ============================================================================
 def render_header():
     if LOGO_PATH.exists():
@@ -143,7 +137,6 @@ def render_header():
         logo_html = f'<img src="data:image/png;base64,{logo_b64}" height="80" style="border-radius: 6px;">'
     else:
         logo_html = '<div style="font-size: 3rem;">🎾</div>'
-
     st.markdown(f"""
     <div class="costa-header">
         {logo_html}
@@ -164,12 +157,23 @@ def render_footer():
 
 
 # ============================================================================
-#  Estado de sesión
+#  Estado de sesión — ahora carga desde Supabase al iniciar
 # ============================================================================
 if "historial" not in st.session_state:
-    st.session_state.historial = {}
+    with st.spinner("Cargando historial..."):
+        st.session_state.historial = cargar_historial()
+
 if "ultima_ronda" not in st.session_state:
     st.session_state.ultima_ronda = None
+
+if "jugadores_supabase" not in st.session_state:
+    st.session_state.jugadores_supabase = get_jugadores()
+
+
+def _guardar_y_rerun():
+    """Guarda el historial en Supabase y hace rerun."""
+    guardar_historial(st.session_state.historial)
+    st.rerun()
 
 
 # ============================================================================
@@ -180,47 +184,64 @@ with st.sidebar:
         st.image(str(LOGO_PATH), use_container_width=True)
 
     st.divider()
-    st.header("📥 Entradas")
-    archivo_excel = st.file_uploader(
-        "Lista de jugadores (Excel)",
-        type=["xlsx", "xls"],
-        help="Columnas requeridas: 'Ranking' y 'Jugador'.",
-    )
+    st.header("📥 Lista de jugadores")
 
+    # Mostrar jugadores actuales en Supabase
+    jugadores_db = st.session_state.jugadores_supabase
+    if jugadores_db:
+        st.success(f"✅ {len(jugadores_db)} jugadores en base de datos")
+        with st.expander("Ver jugadores"):
+            st.dataframe(
+                pd.DataFrame(jugadores_db)[["ranking", "nombre"]].rename(
+                    columns={"ranking": "Ranking", "nombre": "Jugador"}
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+    # Subir Excel para actualizar jugadores
+    archivo_excel = st.file_uploader(
+        "Actualizar lista (Excel)",
+        type=["xlsx", "xls"],
+        help="Columnas requeridas: 'Ranking' y 'Jugador'. Actualiza la base de datos.",
+    )
+    if archivo_excel is not None:
+        try:
+            df_excel = pd.read_excel(archivo_excel)
+            if "Ranking" not in df_excel.columns or "Jugador" not in df_excel.columns:
+                st.error(f"Columnas requeridas: 'Ranking' y 'Jugador'.")
+            else:
+                if st.button("💾 Guardar jugadores en BD", type="primary", use_container_width=True):
+                    with st.spinner("Guardando..."):
+                        actualizar_jugadores_desde_excel(df_excel.to_dict("records"))
+                        st.session_state.jugadores_supabase = get_jugadores()
+                    st.success(f"✅ {len(df_excel)} jugadores guardados.")
+                    st.rerun()
+        except Exception as e:
+            st.error(f"No se pudo leer el Excel: {e}")
+
+    st.divider()
     n_categorias = st.number_input(
         "Número de categorías",
         min_value=2, max_value=8, value=4, step=2,
     )
 
     st.divider()
-    st.subheader("Historial previo")
-    archivo_historial = st.file_uploader("historial.json", type=["json"])
-    if archivo_historial is not None:
-        try:
-            historial_cargado = json.loads(archivo_historial.read().decode("utf-8"))
-            if "internas" in historial_cargado or "cruces" in historial_cargado or "partidos" in historial_cargado:
-                st.session_state.historial = historial_cargado
-                st.success(f"Cargado ✅ ({len(historial_cargado.get('partidos', []))} partidos)")
-            else:
-                st.warning("Formato antiguo, se ignora.")
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    st.divider()
+    # Descarga del historial (por si quieres un backup)
     if st.session_state.historial:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         st.download_button(
-            label="💾 Descargar historial.json",
+            label="💾 Backup historial.json",
             data=historial_a_json(st.session_state.historial),
             file_name=f"historial_{timestamp}.json",
             mime="application/json",
             use_container_width=True,
-            help="Guárdalo para no perder el progreso.",
         )
 
     if st.button("🔄 Reiniciar todo", use_container_width=True):
         st.session_state.historial = {}
         st.session_state.ultima_ronda = None
+        guardar_historial({})
         st.success("Reiniciado.")
         st.rerun()
 
@@ -231,11 +252,12 @@ with st.sidebar:
 render_header()
 
 # ============================================================================
-#  Validación
+#  Validación: necesitamos jugadores en la BD
 # ============================================================================
-if archivo_excel is None:
-    st.info("👈 Sube tu Excel en la barra lateral para empezar.")
+jugadores_db = st.session_state.jugadores_supabase
 
+if not jugadores_db:
+    st.info("👈 Sube tu Excel en la barra lateral para cargar los jugadores por primera vez.")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("### 📋 Formato esperado del Excel")
@@ -246,37 +268,18 @@ if archivo_excel is None:
         | 2       | Roger Federer  |
         | ...     | ...            |
         """)
-
     with col2:
         st.markdown("### 🏆 Sistema de puntaje")
         st.markdown(f"""
         - 🥇 **Partido ganado:** {PUNTOS_GANADO} pts
         - 🥈 **Partido perdido:** {PUNTOS_PERDIDO} pts
-        - ⚠️ **W.O. a favor:** {PUNTOS_WO_FAVOR} pts (debe evidenciarse)
+        - ⚠️ **W.O. a favor:** {PUNTOS_WO_FAVOR} pts
         """)
-
-    st.markdown("### 🎯 Cómo funciona")
-    st.markdown("""
-    - Los jugadores se dividen en **N categorías** (default 4) según ranking.
-    - Cada ronda, cada jugador tiene:
-        - **1 partido interno** vs alguien de su misma categoría
-        - **1 partido cruzado** vs alguien de la categoría adyacente (A↔B, C↔D, ...)
-    - No se repiten parejas hasta completar el ciclo.
-    """)
     render_footer()
     st.stop()
 
-try:
-    df_jugadores = pd.read_excel(archivo_excel)
-except Exception as e:
-    st.error(f"No se pudo leer el Excel: {e}")
-    st.stop()
-
-if "Ranking" not in df_jugadores.columns or "Jugador" not in df_jugadores.columns:
-    st.error(f"Columnas requeridas: 'Ranking' y 'Jugador'. Encontradas: {list(df_jugadores.columns)}")
-    st.stop()
-
-jugadores = df_jugadores.to_dict("records")
+# Convertir jugadores de BD al formato que espera pairing.py
+jugadores = [{"Ranking": j["ranking"], "Jugador": j["nombre"]} for j in jugadores_db]
 categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
 
 
@@ -315,7 +318,7 @@ with tab_ronda:
 
     pendientes = partidos_pendientes(st.session_state.historial)
     if pendientes:
-        st.warning(f"⚠️ Hay **{len(pendientes)} partido(s) pendiente(s)** sin resultado de rondas anteriores.")
+        st.warning(f"⚠️ Hay **{len(pendientes)} partido(s) pendiente(s)** sin resultado.")
 
     col_gen, col_info = st.columns([1, 3])
     with col_gen:
@@ -323,7 +326,8 @@ with tab_ronda:
             resultados = siguiente_ronda_completa(categorias, st.session_state.historial)
             nuevos = registrar_partidos_generados(st.session_state.historial, resultados)
             st.session_state.ultima_ronda = resultados
-            st.success(f"Se generaron {nuevos} partidos nuevos.")
+            guardar_historial(st.session_state.historial)   # ← guarda en Supabase
+            st.success(f"✅ Se generaron {nuevos} partidos nuevos. Guardado en base de datos.")
 
     with col_info:
         st.caption("Cada ronda incluye partidos internos + cruzados para todas las categorías.")
@@ -336,7 +340,6 @@ with tab_ronda:
         c1.metric("Total partidos", total)
         c2.metric("Internos", len(df_ronda[(df_ronda["Tipo"] == "Interno") & (df_ronda["Jugador 2"] != "DESCANSA")]))
         c3.metric("Cruzados", len(df_ronda[df_ronda["Tipo"] == "Cruzado"]))
-
         st.dataframe(df_ronda, hide_index=True, use_container_width=True)
 
         buffer = io.BytesIO()
@@ -375,13 +378,7 @@ with tab_resultados:
             bloques_disponibles = sorted({p["bloque"] for p in todos})
             filtro_bloque = st.multiselect("Filtrar por bloque", options=bloques_disponibles, default=bloques_disponibles)
 
-        if mostrar == "Pendientes":
-            lista = pendientes
-        elif mostrar == "Completados":
-            lista = completados
-        else:
-            lista = todos
-
+        lista = {"Pendientes": pendientes, "Completados": completados, "Todos": todos}[mostrar]
         lista = [p for p in lista if p["bloque"] in filtro_bloque]
 
         if not lista:
@@ -416,6 +413,7 @@ with tab_resultados:
                     st.info(f"Resultado registrado: **{formatear_marcador(partido_sel['resultado'])}**")
                     if st.button("🗑️ Borrar resultado", key="borrar"):
                         borrar_resultado(st.session_state.historial, partido_sel["id"])
+                        guardar_historial(st.session_state.historial)   # ← guarda en Supabase
                         st.success("Resultado borrado.")
                         st.rerun()
 
@@ -464,6 +462,7 @@ with tab_resultados:
                                 else:
                                     sets_validos = [s for s in sets if not (s["games_1"] == 0 and s["games_2"] == 0)]
                                     registrar_resultado(st.session_state.historial, partido_sel["id"], tipo="normal", sets=sets_validos)
+                                    guardar_historial(st.session_state.historial)   # ← guarda en Supabase
                                     st.success("✅ Resultado guardado.")
                                     st.rerun()
                             else:
@@ -471,6 +470,7 @@ with tab_resultados:
                                     st.error("Debes ingresar la evidencia/nota del W.O.")
                                 else:
                                     registrar_resultado(st.session_state.historial, partido_sel["id"], tipo=tipo, nota_wo=nota_wo.strip())
+                                    guardar_historial(st.session_state.historial)   # ← guarda en Supabase
                                     st.success("✅ W.O. registrado.")
                                     st.rerun()
                         except ValueError as e:
@@ -503,7 +503,6 @@ with tab_ranking:
                 "Puntos": st.column_config.NumberColumn(format="%d"),
             },
         )
-
         st.caption(
             "Orden: 1° Puntos · 2° Partidos ganados · 3° Ranking inicial · "
             "PJ=Jugados · G=Ganados · P=Perdidos · WO+=WO a favor · WO-=WO en contra"
@@ -520,5 +519,4 @@ with tab_ranking:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-# Footer
 render_footer()
