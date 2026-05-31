@@ -54,6 +54,19 @@ def actualizar_jugadores_desde_excel(jugadores: list[dict]) -> None:
         ).execute()
 
 
+def set_jugador_activo(jugador_id: int, activo: bool) -> None:
+    """Activa o desactiva un jugador."""
+    sb = get_supabase()
+    sb.table("jugadores").update({"activo": activo}).eq("id", jugador_id).execute()
+
+
+def get_todos_jugadores() -> list[dict]:
+    """Retorna todos los jugadores (activos e inactivos) ordenados por ranking."""
+    sb = get_supabase()
+    resp = sb.table("jugadores").select("*").order("ranking").execute()
+    return resp.data
+
+
 # ============================================================================
 #  Historial (una sola fila JSON en Supabase)
 # ============================================================================

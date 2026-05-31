@@ -30,7 +30,9 @@ from db import (
     cargar_historial,
     guardar_historial,
     get_jugadores,
+    get_todos_jugadores,
     actualizar_jugadores_desde_excel,
+    set_jugador_activo,
 )
 
 # ============================================================================
@@ -286,10 +288,11 @@ categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
 # ============================================================================
 #  Pestañas
 # ============================================================================
-tab_ronda, tab_resultados, tab_ranking = st.tabs([
+tab_ronda, tab_resultados, tab_ranking, tab_jugadores = st.tabs([
     "🎯 Generar Ronda",
     "📝 Cargar Resultados",
     "🏆 Ranking",
+    "⚙️ Jugadores",
 ])
 
 # ----------------------------------------------------------------------------
@@ -518,5 +521,70 @@ with tab_ranking:
             file_name=f"costa_sport_ranking_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+# ----------------------------------------------------------------------------
+#  TAB 4: Gestión de Jugadores
+# ----------------------------------------------------------------------------
+with tab_jugadores:
+    st.subheader("⚙️ Gestión de jugadores")
+
+    todos = get_todos_jugadores()
+    activos = [j for j in todos if j["activo"]]
+    inactivos = [j for j in todos if not j["activo"]]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total inscritos", len(todos))
+    c2.metric("Activos en escalerilla", len(activos))
+    c3.metric("Fuera (inactivos)", len(inactivos))
+
+    st.divider()
+
+    st.markdown("#### Lista completa")
+    st.caption("Solo los jugadores activos participan en la escalerilla.")
+
+    if not todos:
+        st.info("No hay jugadores cargados aún.")
+    else:
+        for j in todos:
+            col_rank, col_nombre, col_estado, col_accion = st.columns([1, 4, 2, 2])
+            col_rank.markdown(f"**#{j['ranking']}**")
+            col_nombre.markdown(j["nombre"])
+            if j["activo"]:
+                col_estado.success("✅ Activo")
+                if col_accion.button("Desactivar", key=f"toggle_{j['id']}", use_container_width=True):
+                    set_jugador_activo(j["id"], False)
+                    st.session_state.jugadores_supabase = get_jugadores()
+                    st.rerun()
+            else:
+                col_estado.error("❌ Inactivo")
+                if col_accion.button("Reactivar", key=f"toggle_{j['id']}", use_container_width=True):
+                    set_jugador_activo(j["id"], True)
+                    st.session_state.jugadores_supabase = get_jugadores()
+                    st.rerun()
+
+    st.divider()
+
+    st.markdown("#### Agregar jugador manualmente")
+    with st.form("form_agregar_jugador"):
+        col_n, col_r = st.columns([3, 1])
+        nuevo_nombre = col_n.text_input("Nombre", placeholder="Ej: Juan Pérez")
+        nuevo_ranking = col_r.number_input("Ranking", min_value=1, max_value=500, value=len(todos) + 1)
+        if st.form_submit_button("➕ Agregar jugador", type="primary", use_container_width=True):
+            if not nuevo_nombre.strip():
+                st.error("Debes ingresar un nombre.")
+            else:
+                try:
+                    from db import get_supabase
+                    sb = get_supabase()
+                    sb.table("jugadores").insert({
+                        "nombre": nuevo_nombre.strip(),
+                        "ranking": int(nuevo_ranking),
+                        "activo": True,
+                    }).execute()
+                    st.session_state.jugadores_supabase = get_jugadores()
+                    st.success(f"✅ {nuevo_nombre.strip()} agregado con ranking #{nuevo_ranking}.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al agregar: {e}")
 
 render_footer()
