@@ -3,6 +3,7 @@ app.py — Costa Sport · Escalerilla
 """
 from __future__ import annotations
 import io
+import json
 import base64
 from datetime import datetime
 from pathlib import Path
@@ -244,6 +245,43 @@ with st.sidebar:
                         st.rerun()
             except Exception as e:
                 st.error(f"No se pudo leer el Excel: {e}")
+
+        st.divider()
+
+        # ── Importar historial JSON ──
+        st.markdown("**📂 Importar historial**")
+        archivo_historial = st.file_uploader(
+            "historial_completo.json",
+            type=["json"],
+            key="import_historial",
+            help="Importa un historial previo. Se fusiona con el actual.",
+        )
+        if archivo_historial is not None:
+            try:
+                historial_nuevo = json.loads(archivo_historial.read().decode("utf-8"))
+                partidos_nuevos = historial_nuevo.get("partidos", [])
+                if not partidos_nuevos:
+                    st.error("El archivo no contiene partidos válidos.")
+                else:
+                    col_imp1, col_imp2 = st.columns(2)
+                    with col_imp1:
+                        st.info(f"{len(partidos_nuevos)} partidos")
+                    with col_imp2:
+                        if st.button("⬆️ Importar", type="primary", use_container_width=True, key="btn_importar"):
+                            # Fusionar: reemplazar partidos existentes o agregar nuevos
+                            historial_actual = st.session_state.historial
+                            ids_actuales = {p["id"] for p in historial_actual.get("partidos", [])}
+                            agregados = 0
+                            for p in partidos_nuevos:
+                                if p["id"] not in ids_actuales:
+                                    historial_actual.setdefault("partidos", []).append(p)
+                                    agregados += 1
+                            guardar_historial(historial_actual)
+                            st.session_state.historial = historial_actual
+                            st.success(f"✅ {agregados} partidos importados a Supabase.")
+                            st.rerun()
+            except Exception as e:
+                st.error(f"Error al importar: {e}")
 
         st.divider()
         if st.session_state.historial:
