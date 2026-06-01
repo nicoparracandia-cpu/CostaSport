@@ -43,6 +43,10 @@ def registrar_partidos_generados(historial: dict, resultados_ronda: list[dict]) 
 
 
 def _ganador_desde_sets(sets: list[dict], j1: str, j2: str) -> str:
+    """
+    Determina el ganador. Formato: 3 sets, el 3° es tie-break a 10 (diff 2).
+    El ganador es quien gana más sets (2 de 3).
+    """
     sets_1 = sum(1 for s in sets if s["games_1"] > s["games_2"])
     sets_2 = sum(1 for s in sets if s["games_2"] > s["games_1"])
     if sets_1 > sets_2:
@@ -51,6 +55,41 @@ def _ganador_desde_sets(sets: list[dict], j1: str, j2: str) -> str:
         return j2
     else:
         raise ValueError("Empate de sets: no hay ganador claro.")
+
+
+def validar_sets(sets: list[dict]) -> list[str]:
+    """
+    Valida el formato de los sets. Retorna lista de errores (vacía si todo OK).
+    Sets 1 y 2: games normales.
+    Set 3: tie-break a 10, diferencia mínima de 2.
+    """
+    errores = []
+    for i, s in enumerate(sets):
+        g1, g2 = s["games_1"], s["games_2"]
+        num_set = i + 1
+        if num_set < 3:
+            # Sets normales: al menos uno llega a 6, diferencia mínima de 2 (excepto tie-break 7-6)
+            if g1 == g2:
+                errores.append(f"Set {num_set}: no puede terminar empatado ({g1}-{g2}).")
+            elif max(g1, g2) < 6:
+                errores.append(f"Set {num_set}: el ganador debe llegar al menos a 6 games ({g1}-{g2}).")
+            elif max(g1, g2) == 6 and min(g1, g2) < 4:
+                pass  # válido: 6-0, 6-1, 6-2, 6-3, 6-4
+            elif max(g1, g2) == 7 and min(g1, g2) not in (5, 6):
+                errores.append(f"Set {num_set}: marcador inválido ({g1}-{g2}). 7 games solo con 7-5 o 7-6.")
+            elif max(g1, g2) > 7:
+                errores.append(f"Set {num_set}: máximo 7 games en sets normales ({g1}-{g2}).")
+        else:
+            # Set 3: tie-break a 10, diferencia mínima de 2
+            if g1 == g2:
+                errores.append(f"Set 3 (tie-break): no puede terminar empatado ({g1}-{g2}).")
+            elif max(g1, g2) < 10:
+                errores.append(f"Set 3 (tie-break): el ganador debe llegar al menos a 10 puntos ({g1}-{g2}).")
+            elif max(g1, g2) == 10 and abs(g1 - g2) < 2:
+                errores.append(f"Set 3 (tie-break): se necesita diferencia de 2 puntos ({g1}-{g2}).")
+            elif max(g1, g2) > 10 and abs(g1 - g2) < 2:
+                errores.append(f"Set 3 (tie-break): se necesita diferencia de 2 puntos ({g1}-{g2}).")
+    return errores
 
 
 def registrar_resultado(

@@ -24,6 +24,7 @@ from resultados import (
     partidos_completados,
     calcular_ranking,
     formatear_marcador,
+    validar_sets,
     PUNTOS_GANADO, PUNTOS_PERDIDO, PUNTOS_WO_FAVOR,
 )
 from db import (
@@ -564,22 +565,28 @@ with tab_resultados:
 
                 with st.form(key=f"form_{partido_sel['id']}"):
                     if tipo_resultado.startswith("Normal"):
-                        n_sets = st.radio("Cantidad de sets", options=[2, 3], horizontal=True)
                         sets = []
-                        for i in range(int(n_sets)):
-                            st.markdown(f"**Set {i+1}**")
-                            cs1, cs2 = st.columns(2)
-                            games_1 = cs1.number_input(
-                                f"Games {j1['Jugador']}",
-                                min_value=0, max_value=20, value=0, step=1,
-                                key=f"g1_{partido_sel['id']}_{i}",
-                            )
-                            games_2 = cs2.number_input(
-                                f"Games {j2['Jugador']}",
-                                min_value=0, max_value=20, value=0, step=1,
-                                key=f"g2_{partido_sel['id']}_{i}",
-                            )
-                            sets.append({"games_1": int(games_1), "games_2": int(games_2)})
+                        # Set 1
+                        st.markdown("**Set 1**")
+                        cs1, cs2 = st.columns(2)
+                        g1 = cs1.number_input(f"Games {j1['Jugador']}", min_value=0, max_value=7, value=0, step=1, key=f"g1_{partido_sel['id']}_0")
+                        g2 = cs2.number_input(f"Games {j2['Jugador']}", min_value=0, max_value=7, value=0, step=1, key=f"g2_{partido_sel['id']}_0")
+                        sets.append({"games_1": int(g1), "games_2": int(g2)})
+
+                        # Set 2
+                        st.markdown("**Set 2**")
+                        cs1, cs2 = st.columns(2)
+                        g1 = cs1.number_input(f"Games {j1['Jugador']}", min_value=0, max_value=7, value=0, step=1, key=f"g1_{partido_sel['id']}_1")
+                        g2 = cs2.number_input(f"Games {j2['Jugador']}", min_value=0, max_value=7, value=0, step=1, key=f"g2_{partido_sel['id']}_1")
+                        sets.append({"games_1": int(g1), "games_2": int(g2)})
+
+                        # Set 3 — tie-break a 10
+                        st.markdown("**Set 3 — Tie-break** *(primero en llegar a 10, diferencia de 2)*")
+                        cs1, cs2 = st.columns(2)
+                        g1 = cs1.number_input(f"Puntos {j1['Jugador']}", min_value=0, max_value=99, value=0, step=1, key=f"g1_{partido_sel['id']}_2")
+                        g2 = cs2.number_input(f"Puntos {j2['Jugador']}", min_value=0, max_value=99, value=0, step=1, key=f"g2_{partido_sel['id']}_2")
+                        sets.append({"games_1": int(g1), "games_2": int(g2)})
+
                         nota_wo = None
                         tipo = "normal"
                     else:
@@ -595,20 +602,34 @@ with tab_resultados:
                     if submitted:
                         try:
                             if tipo == "normal":
-                                if all(s["games_1"] == 0 and s["games_2"] == 0 for s in sets):
-                                    st.error("Debes ingresar los games de al menos un set.")
+                                # Detectar si se jugó el set 3
+                                s1, s2, s3 = sets[0], sets[1], sets[2]
+                                sets_1 = sum(1 for s in [s1, s2] if s["games_1"] > s["games_2"])
+                                sets_2 = sum(1 for s in [s1, s2] if s["games_2"] > s["games_1"])
+                                hubo_tercer_set = sets_1 == 1 and sets_2 == 1
+
+                                if s1["games_1"] == 0 and s1["games_2"] == 0:
+                                    st.error("Debes ingresar el resultado del Set 1.")
                                 else:
-                                    sets_validos = [s for s in sets if not (s["games_1"] == 0 and s["games_2"] == 0)]
-                                    registrar_resultado(st.session_state.historial, partido_sel["id"], tipo="normal", sets=sets_validos)
-                                    guardar_historial(st.session_state.historial)   # ← guarda en Supabase
-                                    st.success("✅ Resultado guardado.")
-                                    st.rerun()
+                                    sets_a_guardar = [s1, s2]
+                                    if hubo_tercer_set:
+                                        sets_a_guardar.append(s3)
+
+                                    errores = validar_sets(sets_a_guardar)
+                                    if errores:
+                                        for e in errores:
+                                            st.error(e)
+                                    else:
+                                        registrar_resultado(st.session_state.historial, partido_sel["id"], tipo="normal", sets=sets_a_guardar)
+                                        guardar_historial(st.session_state.historial)
+                                        st.success("✅ Resultado guardado.")
+                                        st.rerun()
                             else:
                                 if not nota_wo or not nota_wo.strip():
                                     st.error("Debes ingresar la evidencia/nota del W.O.")
                                 else:
                                     registrar_resultado(st.session_state.historial, partido_sel["id"], tipo=tipo, nota_wo=nota_wo.strip())
-                                    guardar_historial(st.session_state.historial)   # ← guarda en Supabase
+                                    guardar_historial(st.session_state.historial)
                                     st.success("✅ W.O. registrado.")
                                     st.rerun()
                         except ValueError as e:
