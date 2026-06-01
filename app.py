@@ -786,22 +786,40 @@ with tab_jugadores:
     if not todos:
         st.info("No hay jugadores cargados aún.")
     else:
-        for j in todos:
-            col_rank, col_nombre, col_estado, col_accion = st.columns([1, 4, 2, 2])
-            col_rank.markdown(f"**#{j['ranking']}**")
-            col_nombre.markdown(j["nombre"])
-            if j["activo"]:
-                col_estado.success("✅ Activo")
-                if col_accion.button("Desactivar", key=f"toggle_{j['id']}", use_container_width=True):
-                    set_jugador_activo(j["id"], False)
-                    st.session_state.jugadores_supabase = get_jugadores()
-                    st.rerun()
-            else:
-                col_estado.error("❌ Inactivo")
-                if col_accion.button("Reactivar", key=f"toggle_{j['id']}", use_container_width=True):
-                    set_jugador_activo(j["id"], True)
-                    st.session_state.jugadores_supabase = get_jugadores()
-                    st.rerun()
+        # ── Buscador y filtros ──
+        col_bus, col_fil = st.columns([3, 2])
+        busqueda = col_bus.text_input("🔍 Buscar jugador", placeholder="Nombre...", key="busqueda_jugador")
+        filtro_estado = col_fil.radio("Mostrar", ["Todos", "Activos", "Inactivos"], horizontal=True, key="filtro_estado")
+
+        # Aplicar filtros
+        lista_filtrada = todos
+        if busqueda:
+            lista_filtrada = [j for j in lista_filtrada if busqueda.lower() in j["nombre"].lower()]
+        if filtro_estado == "Activos":
+            lista_filtrada = [j for j in lista_filtrada if j["activo"]]
+        elif filtro_estado == "Inactivos":
+            lista_filtrada = [j for j in lista_filtrada if not j["activo"]]
+
+        if not lista_filtrada:
+            st.info("No se encontraron jugadores con esos filtros.")
+        else:
+            st.caption(f"Mostrando {len(lista_filtrada)} de {len(todos)} jugadores")
+            for j in lista_filtrada:
+                col_rank, col_nombre, col_estado, col_accion = st.columns([1, 4, 2, 2])
+                col_rank.markdown(f"**#{j['ranking']}**")
+                col_nombre.markdown(j["nombre"])
+                if j["activo"]:
+                    col_estado.success("✅ Activo")
+                    if col_accion.button("Desactivar", key=f"toggle_{j['id']}", use_container_width=True):
+                        set_jugador_activo(j["id"], False)
+                        st.session_state.jugadores_supabase = get_jugadores()
+                        st.rerun()
+                else:
+                    col_estado.error("❌ Inactivo")
+                    if col_accion.button("Reactivar", key=f"toggle_{j['id']}", use_container_width=True):
+                        set_jugador_activo(j["id"], True)
+                        st.session_state.jugadores_supabase = get_jugadores()
+                        st.rerun()
 
     st.divider()
 
