@@ -38,6 +38,8 @@ from db import (
     actualizar_jugadores_desde_excel,
     set_jugador_activo,
     get_supabase,
+    get_jugador_by_nombre,
+    guardar_caracteristicas,
 )
 
 # ============================================================================
@@ -351,10 +353,11 @@ categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
 # ============================================================================
 #  Pestañas
 # ============================================================================
-tab_ronda, tab_resultados, tab_ranking, tab_jugadores = st.tabs([
+tab_ronda, tab_resultados, tab_ranking, tab_perfiles, tab_jugadores = st.tabs([
     "🎯 Generar Ronda",
     "📝 Cargar Resultados",
     "🏆 Ranking",
+    "👤 Perfiles",
     "⚙️ Jugadores",
 ])
 
@@ -763,8 +766,171 @@ with tab_ranking:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
+        st.divider()
+        st.markdown("#### 👤 Ver perfil de jugador")
+        col_sel, col_btn = st.columns([3, 1])
+        jugador_perfil = col_sel.selectbox(
+            "Selecciona jugador",
+            options=sorted([j["nombre"] for j in jugadores_db]),
+            key="ranking_perfil_selector",
+            label_visibility="collapsed"
+        )
+        if col_btn.button("Ver perfil →", use_container_width=True):
+            st.session_state["perfil_desde_ranking"] = jugador_perfil
+            st.info(f"Ve a la pestaña **👤 Perfiles** para ver el perfil de {jugador_perfil}.")
+
 # ----------------------------------------------------------------------------
-#  TAB 4: Gestión de Jugadores
+#  TAB 4: Perfiles de jugadores
+# ----------------------------------------------------------------------------
+with tab_perfiles:
+    st.subheader("👤 Perfil de jugador")
+
+    nombres_activos = sorted([j["nombre"] for j in jugadores_db])
+    # Pre-seleccionar si viene desde el ranking
+    idx_default = 0
+    if st.session_state.get("perfil_desde_ranking") in nombres_activos:
+        idx_default = nombres_activos.index(st.session_state["perfil_desde_ranking"])
+    jugador_nombre = st.selectbox(
+        "Selecciona un jugador",
+        options=nombres_activos,
+        index=idx_default,
+        key="perfil_selector"
+    )
+
+    if jugador_nombre:
+        jug_data = get_jugador_by_nombre(jugador_nombre)
+        if not jug_data:
+            st.warning("Jugador no encontrado en la base de datos.")
+        else:
+            # ── Encabezado del perfil ──
+            caract = jug_data.get("caracteristicas") or {}
+            pos_actual = next(
+                (i+1 for i, j in enumerate(
+                    sorted(jugadores, key=lambda x: -x.get("puntos_base", 0))
+                ) if j["Jugador"] == jugador_nombre),
+                "—"
+            )
+
+            col_info, col_stats = st.columns([2, 3])
+            with col_info:
+                st.markdown(f"## {jugador_nombre}")
+                st.markdown(f"**Ranking inicial:** #{jug_data['ranking']}")
+                st.markdown(f"**Categoría:** {next((c for c, lst in categorias.items() if any(j['Jugador'] == jugador_nombre for j in lst)), '—')}")
+                st.markdown(f"**Estado:** {'✅ Activo' if jug_data['activo'] else '❌ Inactivo'}")
+                st.markdown(f"**Performance:** {jug_data.get('performance') or 0:.2f}")
+                st.markdown(f"**Pts base:** {jug_data.get('puntos_base') or 0}")
+
+            # Calcular stats del jugador desde historial
+            partidos_jugador = [
+                p for p in st.session_state.historial.get("partidos", [])
+                if (p["jugador_1"]["Jugador"] == jugador_nombre or
+                    p["jugador_2"]["Jugador"] == jugador_nombre)
+                and p["resultado"] is not None
+                and p["resultado"]["tipo"] != "no_jugado"
+            ]
+            pj = len(partidos_jugador)
+            g = sum(1 for p in partidos_jugador if p["resultado"].get("ganador") == jugador_nombre)
+            pe = sum(1 for p in partidos_jugador if p["resultado"]["tipo"] == "normal" and p["resultado"].get("ganador") != jugador_nombre)
+            wo_favor = sum(1 for p in partidos_jugador if p["resultado"]["tipo"] == "wo" and p["resultado"].get("ganador") == jugador_nombre)
+            wo_contra = sum(1 for p in partidos_jugador if p["resultado"]["tipo"] == "wo" and p["resultado"].get("ganador") != jugador_nombre)
+            pts_nuevos = g * 200 + pe * 25 + wo_favor * 50
+            pts_total = (jug_data.get("puntos_base") or 0) + pts_nuevos
+
+            # Racha actual
+            racha = 0
+            racha_tipo = "—"
+            for p in reversed(partidos_jugador):
+                es_ganador = p["resultado"].get("ganador") == jugador_nombre
+                if racha == 0:
+                    racha_tipo = "🟢 Victoria" if es_ganador else "🔴 Derrota"
+                if (racha_tipo.startswith("🟢") and es_ganador) or (racha_tipo.startswith("🔴") and not es_ganador):
+                    racha += 1
+                else:
+                    break
+
+            with col_stats:
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("PJ", pj)
+                c2.metric("Ganados", g)
+                c3.metric("Perdidos", pe)
+                c4.metric("Puntos", pts_total)
+                c1b, c2b, c3b, c4b = st.columns(4)
+                c1b.metric("WO+", wo_favor)
+                c2b.metric("WO-", wo_contra)
+                c3b.metric("Racha", racha)
+                c4b.metric("Tipo racha", racha_tipo)
+
+            st.divider()
+
+            # ── Características ──
+            col_caract, col_hist = st.columns([1, 2])
+            with col_caract:
+                st.markdown("#### 🎾 Características")
+                campos = [
+                    ("mejor_golpe", "Mejor golpe", "Ej: Revés cruzado"),
+                    ("estilo", "Estilo de juego", "Ej: Baseliner agresivo"),
+                    ("mano", "Mano dominante", "Derecho / Zurdo"),
+                    ("nota", "Nota del admin", "Observaciones generales"),
+                ]
+                for campo, label, placeholder in campos:
+                    valor = caract.get(campo, "")
+                    if valor:
+                        st.markdown(f"**{label}:** {valor}")
+                    else:
+                        st.markdown(f"**{label}:** —")
+
+                if st.session_state.es_admin:
+                    with st.expander("✏️ Editar características"):
+                        with st.form(f"form_caract_{jug_data['id']}"):
+                            nuevas = {}
+                            for campo, label, placeholder in campos:
+                                nuevas[campo] = st.text_input(
+                                    label,
+                                    value=caract.get(campo, ""),
+                                    placeholder=placeholder,
+                                    key=f"caract_{campo}_{jug_data['id']}"
+                                )
+                            if st.form_submit_button("💾 Guardar características", type="primary", use_container_width=True):
+                                guardar_caracteristicas(jug_data["id"], nuevas)
+                                st.success("✅ Características guardadas.")
+                                st.rerun()
+
+            with col_hist:
+                st.markdown("#### 📋 Historial de partidos")
+                if not partidos_jugador:
+                    st.info("Sin partidos registrados.")
+                else:
+                    filas = []
+                    for p in reversed(partidos_jugador):
+                        es_j1 = p["jugador_1"]["Jugador"] == jugador_nombre
+                        rival = p["jugador_2"]["Jugador"] if es_j1 else p["jugador_1"]["Jugador"]
+                        res = p["resultado"]
+                        ganador = res.get("ganador", "")
+                        if res["tipo"] == "normal":
+                            sets = res.get("sets", [])
+                            if es_j1:
+                                marcador = " / ".join(f"{s['games_1']}-{s['games_2']}" for s in sets)
+                            else:
+                                marcador = " / ".join(f"{s['games_2']}-{s['games_1']}" for s in sets)
+                            resultado_str = "✅ G" if ganador == jugador_nombre else "❌ P"
+                        elif res["tipo"] == "wo":
+                            marcador = "W.O."
+                            resultado_str = "✅ WO+" if ganador == jugador_nombre else "❌ WO-"
+                        else:
+                            marcador = "—"
+                            resultado_str = "—"
+                        filas.append({
+                            "Ronda": p.get("ronda_bloque", "—"),
+                            "Bloque": p.get("bloque", "—"),
+                            "Rival": rival,
+                            "Resultado": resultado_str,
+                            "Marcador": marcador,
+                        })
+                    import pandas as pd
+                    st.dataframe(pd.DataFrame(filas), hide_index=True, use_container_width=True)
+
+# ----------------------------------------------------------------------------
+#  TAB 5: Gestión de Jugadores
 # ----------------------------------------------------------------------------
 with tab_jugadores:
     if not st.session_state.es_admin:

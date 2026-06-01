@@ -88,3 +88,18 @@ def guardar_historial(historial: dict) -> None:
         {"id": HISTORIAL_ID, "data": json.dumps(historial, ensure_ascii=False)},
         on_conflict="id"
     ).execute()
+
+
+def get_jugador_by_nombre(nombre: str) -> dict | None:
+    """Retorna un jugador por nombre exacto."""
+    sb = get_supabase()
+    resp = sb.table("jugadores").select("*").eq("nombre", nombre).execute()
+    return resp.data[0] if resp.data else None
+
+
+def guardar_caracteristicas(jugador_id: int, caracteristicas: dict) -> None:
+    """Guarda las características de un jugador."""
+    sb = get_supabase()
+    sb.table("jugadores").update(
+        {"caracteristicas": caracteristicas}
+    ).eq("id", jugador_id).execute()
