@@ -249,6 +249,9 @@ def calcular_ranking(historial: dict, jugadores_base: list[dict]):
         res = partido["resultado"]
         if res is None:
             continue
+        # Partidos no jugados no suman puntos
+        if res["tipo"] == "no_jugado":
+            continue
         j1 = partido["jugador_1"]["Jugador"]
         j2 = partido["jugador_2"]["Jugador"]
         if j1 not in stats or j2 not in stats:
