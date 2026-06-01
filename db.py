@@ -4,18 +4,14 @@ db.py — Costa Sport
 Capa de acceso a Supabase. Reemplaza el historial.json.
 
 Tablas en Supabase:
-  - jugadores  (id, nombre, ranking, performance, activo)
-  - historial  (id, data)   ← una sola fila con todo el historial serializado
+  - jugadores  (id, nombre, ranking, performance, puntos_base, activo)
+  - historial  (id, data)
 """
 from __future__ import annotations
 import json
 import streamlit as st
 from supabase import create_client
 
-
-# ============================================================================
-#  Conexión (singleton cacheado)
-# ============================================================================
 
 @st.cache_resource
 def get_supabase():
@@ -25,12 +21,8 @@ def get_supabase():
     )
 
 
-# ============================================================================
-#  Jugadores
-# ============================================================================
-
 def get_jugadores() -> list[dict]:
-    """Retorna la lista de jugadores activos ordenada por ranking."""
+    """Retorna jugadores activos ordenados por ranking."""
     sb = get_supabase()
     resp = sb.table("jugadores").select("*").eq("activo", True).order("ranking").execute()
     return resp.data
@@ -45,8 +37,8 @@ def get_todos_jugadores() -> list[dict]:
 
 def actualizar_jugadores_desde_excel(jugadores: list[dict]) -> None:
     """
-    Sincroniza la tabla jugadores con el Excel subido (Hoja2).
-    Soporta columnas: Ranking, Jugador, Performance (opcional), Puntaje (ignorado).
+    Sincroniza jugadores desde Excel.
+    Columnas soportadas: Ranking, Jugador, Performance (opcional), Puntaje (opcional).
     """
     sb = get_supabase()
     for j in jugadores:
@@ -60,6 +52,11 @@ def actualizar_jugadores_desde_excel(jugadores: list[dict]) -> None:
                 data["performance"] = float(j["Performance"])
             except (ValueError, TypeError):
                 data["performance"] = 0.0
+        if "Puntaje" in j and j["Puntaje"] is not None:
+            try:
+                data["puntos_base"] = int(j["Puntaje"])
+            except (ValueError, TypeError):
+                data["puntos_base"] = 0
         sb.table("jugadores").upsert(data, on_conflict="nombre").execute()
 
 
@@ -69,15 +66,11 @@ def set_jugador_activo(jugador_id: int, activo: bool) -> None:
     sb.table("jugadores").update({"activo": activo}).eq("id", jugador_id).execute()
 
 
-# ============================================================================
-#  Historial (una sola fila JSON en Supabase)
-# ============================================================================
-
-HISTORIAL_ID = 1  # siempre usamos la fila con id=1
+HISTORIAL_ID = 1
 
 
 def cargar_historial() -> dict:
-    """Carga el historial desde Supabase. Retorna {} si no existe."""
+    """Carga el historial desde Supabase."""
     sb = get_supabase()
     resp = sb.table("historial").select("data").eq("id", HISTORIAL_ID).execute()
     if resp.data:
@@ -86,7 +79,7 @@ def cargar_historial() -> dict:
 
 
 def guardar_historial(historial: dict) -> None:
-    """Guarda (upsert) el historial completo en Supabase."""
+    """Guarda el historial completo en Supabase."""
     sb = get_supabase()
     sb.table("historial").upsert(
         {"id": HISTORIAL_ID, "data": json.dumps(historial, ensure_ascii=False)},

@@ -281,7 +281,7 @@ if not jugadores_db:
     st.stop()
 
 # Convertir jugadores de BD al formato que espera pairing.py
-jugadores = [{"Ranking": j["ranking"], "Jugador": j["nombre"], "performance": j.get("performance", 0) or 0} for j in jugadores_db]
+jugadores = [{"Ranking": j["ranking"], "Jugador": j["nombre"], "performance": j.get("performance") or 0, "puntos_base": j.get("puntos_base") or 0} for j in jugadores_db]
 categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
 
 
@@ -508,7 +508,7 @@ with tab_ranking:
         )
         st.caption(
             "Orden: 1° Puntos · 2° Partidos ganados · 3° Ranking inicial · "
-            "PJ=Jugados · G=Ganados · P=Perdidos · WO+=WO a favor · WO-=WO en contra"
+            "Puntos = Pts base (historial) + Pts nuevos (partidos jugados) · Desempate: Performance · Ranking inicial"
         )
 
         buffer = io.BytesIO()
