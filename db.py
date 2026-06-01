@@ -57,6 +57,9 @@ def actualizar_jugadores_desde_excel(jugadores: list[dict]) -> None:
                 data["puntos_base"] = int(j["Puntaje"])
             except (ValueError, TypeError):
                 data["puntos_base"] = 0
+        if "Activo" in j and j["Activo"] is not None:
+            val = str(j["Activo"]).strip().upper()
+            data["activo"] = val in ("S", "SI", "SÍ", "1", "TRUE", "Y", "YES")
         sb.table("jugadores").upsert(data, on_conflict="nombre").execute()
 
 

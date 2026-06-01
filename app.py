@@ -345,12 +345,15 @@ with tab_ronda:
 
     col_gen, col_info = st.columns([1, 3])
     with col_gen:
-        if st.button("🎯 Generar siguiente ronda", type="primary", use_container_width=True):
-            resultados = siguiente_ronda_completa(categorias, st.session_state.historial)
-            nuevos = registrar_partidos_generados(st.session_state.historial, resultados)
-            st.session_state.ultima_ronda = resultados
-            guardar_historial(st.session_state.historial)   # ← guarda en Supabase
-            st.success(f"✅ Se generaron {nuevos} partidos nuevos. Guardado en base de datos.")
+        if st.session_state.es_admin:
+            if st.button("🎯 Generar siguiente ronda", type="primary", use_container_width=True):
+                resultados = siguiente_ronda_completa(categorias, st.session_state.historial)
+                nuevos = registrar_partidos_generados(st.session_state.historial, resultados)
+                st.session_state.ultima_ronda = resultados
+                guardar_historial(st.session_state.historial)
+                st.success(f"✅ Se generaron {nuevos} partidos nuevos. Guardado en base de datos.")
+        else:
+            st.info("🔐 Solo el administrador puede generar rondas.")
 
     with col_info:
         st.caption("Cada ronda incluye partidos internos + cruzados para todas las categorías.")
@@ -434,11 +437,12 @@ with tab_resultados:
 
                 if partido_sel["resultado"]:
                     st.info(f"Resultado registrado: **{formatear_marcador(partido_sel['resultado'])}**")
-                    if st.button("🗑️ Borrar resultado", key="borrar"):
-                        borrar_resultado(st.session_state.historial, partido_sel["id"])
-                        guardar_historial(st.session_state.historial)   # ← guarda en Supabase
-                        st.success("Resultado borrado.")
-                        st.rerun()
+                    if st.session_state.es_admin:
+                        if st.button("🗑️ Borrar resultado", key="borrar"):
+                            borrar_resultado(st.session_state.historial, partido_sel["id"])
+                            guardar_historial(st.session_state.historial)
+                            st.success("Resultado borrado.")
+                            st.rerun()
 
                 st.divider()
 
