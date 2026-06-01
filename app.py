@@ -768,16 +768,66 @@ with tab_ranking:
 
         st.divider()
         st.markdown("#### 👤 Ver perfil de jugador")
-        col_sel, col_btn = st.columns([3, 1])
-        jugador_perfil = col_sel.selectbox(
-            "Selecciona jugador",
-            options=sorted([j["nombre"] for j in jugadores_db]),
+        jugador_perfil = st.selectbox(
+            "Selecciona jugador para ver su perfil",
+            options=["— Selecciona —"] + sorted([j["nombre"] for j in jugadores_db]),
             key="ranking_perfil_selector",
-            label_visibility="collapsed"
         )
-        if col_btn.button("Ver perfil →", use_container_width=True):
+        if jugador_perfil != "— Selecciona —":
             st.session_state["perfil_desde_ranking"] = jugador_perfil
-            st.info(f"Ve a la pestaña **👤 Perfiles** para ver el perfil de {jugador_perfil}.")
+            _jug = get_jugador_by_nombre(jugador_perfil)
+            if _jug:
+                _caract = _jug.get("caracteristicas") or {}
+                _tel = _jug.get("telefono", "") or ""
+                _partidos_jug = [
+                    p for p in st.session_state.historial.get("partidos", [])
+                    if (p["jugador_1"]["Jugador"] == jugador_perfil or p["jugador_2"]["Jugador"] == jugador_perfil)
+                    and p["resultado"] is not None and p["resultado"]["tipo"] != "no_jugado"
+                ]
+                _g = sum(1 for p in _partidos_jug if p["resultado"].get("ganador") == jugador_perfil)
+                _pe = sum(1 for p in _partidos_jug if p["resultado"]["tipo"] == "normal" and p["resultado"].get("ganador") != jugador_perfil)
+                _wo_f = sum(1 for p in _partidos_jug if p["resultado"]["tipo"] == "wo" and p["resultado"].get("ganador") == jugador_perfil)
+                _wo_c = sum(1 for p in _partidos_jug if p["resultado"]["tipo"] == "wo" and p["resultado"].get("ganador") != jugador_perfil)
+                _pts = (_jug.get("puntos_base") or 0) + _g * 200 + _pe * 25 + _wo_f * 50
+
+                with st.container():
+                    st.markdown(f"### {jugador_perfil}")
+                    _c1, _c2, _c3, _c4, _c5 = st.columns(5)
+                    _c1.metric("PJ", len(_partidos_jug))
+                    _c2.metric("G", _g)
+                    _c3.metric("P", _pe)
+                    _c4.metric("WO+", _wo_f)
+                    _c5.metric("Puntos", _pts)
+
+                    _info_cols = st.columns(3)
+                    _info_cols[0].markdown(f"**Categoría:** {next((c for c, lst in categorias.items() if any(j['Jugador'] == jugador_perfil for j in lst)), '—')}")
+                    _info_cols[1].markdown(f"**Performance:** {_jug.get('performance') or 0:.2f}")
+                    if _tel:
+                        _tel_limpio = _tel.replace("+", "").replace(" ", "")
+                        _info_cols[2].markdown(f"**WhatsApp:** [📱 Contactar](https://wa.me/{_tel_limpio})")
+
+                    if _caract:
+                        _caract_str = " · ".join(f"**{k.replace('_', ' ').title()}:** {v}" for k, v in _caract.items() if v)
+                        if _caract_str:
+                            st.markdown(_caract_str)
+
+                    with st.expander("📋 Ver historial de partidos"):
+                        _filas = []
+                        for p in reversed(_partidos_jug):
+                            _es_j1 = p["jugador_1"]["Jugador"] == jugador_perfil
+                            _rival = p["jugador_2"]["Jugador"] if _es_j1 else p["jugador_1"]["Jugador"]
+                            _res = p["resultado"]
+                            _gan = _res.get("ganador", "")
+                            if _res["tipo"] == "normal":
+                                _sets = _res.get("sets", [])
+                                _marc = " / ".join(f"{s['games_1']}-{s['games_2']}" if _es_j1 else f"{s['games_2']}-{s['games_1']}" for s in _sets)
+                                _rstr = "✅ G" if _gan == jugador_perfil else "❌ P"
+                            else:
+                                _marc = "W.O."
+                                _rstr = "✅ WO+" if _gan == jugador_perfil else "❌ WO-"
+                            _filas.append({"Ronda": p.get("ronda_bloque","—"), "Rival": _rival, "Resultado": _rstr, "Marcador": _marc})
+                        if _filas:
+                            st.dataframe(pd.DataFrame(_filas), hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------------------------------
 #  TAB 4: Perfiles de jugadores
@@ -804,12 +854,7 @@ with tab_perfiles:
         else:
             # ── Encabezado del perfil ──
             caract = jug_data.get("caracteristicas") or {}
-            pos_actual = next(
-                (i+1 for i, j in enumerate(
-                    sorted(jugadores, key=lambda x: -x.get("puntos_base", 0))
-                ) if j["Jugador"] == jugador_nombre),
-                "—"
-            )
+            telefono = jug_data.get("telefono", "") or ""
 
             col_info, col_stats = st.columns([2, 3])
             with col_info:
@@ -819,6 +864,11 @@ with tab_perfiles:
                 st.markdown(f"**Estado:** {'✅ Activo' if jug_data['activo'] else '❌ Inactivo'}")
                 st.markdown(f"**Performance:** {jug_data.get('performance') or 0:.2f}")
                 st.markdown(f"**Pts base:** {jug_data.get('puntos_base') or 0}")
+                if telefono:
+                    tel_limpio = telefono.replace("+", "").replace(" ", "")
+                    st.markdown(f"**WhatsApp:** [📱 Contactar](https://wa.me/{tel_limpio})")
+                else:
+                    st.markdown("**WhatsApp:** —")
 
             # Calcular stats del jugador desde historial
             partidos_jugador = [
@@ -882,6 +932,13 @@ with tab_perfiles:
                 if st.session_state.es_admin:
                     with st.expander("✏️ Editar características"):
                         with st.form(f"form_caract_{jug_data['id']}"):
+                            nuevo_tel = st.text_input(
+                                "📱 Teléfono WhatsApp",
+                                value=telefono,
+                                placeholder="Ej: +56912345678",
+                                key=f"caract_tel_{jug_data['id']}"
+                            )
+                            st.caption("Incluye código de país. Ej: +56 para Chile")
                             nuevas = {}
                             for campo, label, placeholder in campos:
                                 nuevas[campo] = st.text_input(
@@ -891,7 +948,7 @@ with tab_perfiles:
                                     key=f"caract_{campo}_{jug_data['id']}"
                                 )
                             if st.form_submit_button("💾 Guardar características", type="primary", use_container_width=True):
-                                guardar_caracteristicas(jug_data["id"], nuevas)
+                                guardar_caracteristicas(jug_data["id"], nuevas, telefono=nuevo_tel)
                                 st.success("✅ Características guardadas.")
                                 st.rerun()
 

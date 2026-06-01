@@ -97,9 +97,10 @@ def get_jugador_by_nombre(nombre: str) -> dict | None:
     return resp.data[0] if resp.data else None
 
 
-def guardar_caracteristicas(jugador_id: int, caracteristicas: dict) -> None:
-    """Guarda las características de un jugador."""
+def guardar_caracteristicas(jugador_id: int, caracteristicas: dict, telefono: str = None) -> None:
+    """Guarda las características y teléfono de un jugador."""
     sb = get_supabase()
-    sb.table("jugadores").update(
-        {"caracteristicas": caracteristicas}
-    ).eq("id", jugador_id).execute()
+    data = {"caracteristicas": caracteristicas}
+    if telefono is not None:
+        data["telefono"] = telefono.strip()
+    sb.table("jugadores").update(data).eq("id", jugador_id).execute()
