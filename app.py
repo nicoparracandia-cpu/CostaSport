@@ -710,18 +710,19 @@ with tab_resultados:
 with tab_ranking:
     st.subheader("🏆 Ranking acumulado de la temporada")
 
-    # Alerta de jugadores con inasistencias consecutivas
-    from resultados import jugadores_a_desactivar, inasistencias_consecutivas
-    en_riesgo = [
-        n for n in {p["jugador_1"]["Jugador"] for p in st.session_state.historial.get("partidos", [])} |
-                   {p["jugador_2"]["Jugador"] for p in st.session_state.historial.get("partidos", [])}
-        if inasistencias_consecutivas(st.session_state.historial, n) == 1
-    ]
-    a_desactivar = jugadores_a_desactivar(st.session_state.historial, limite=2)
-    if a_desactivar:
-        st.error(f"🚫 Desactivados por 2 inasistencias consecutivas: {', '.join(a_desactivar)}")
-    if en_riesgo:
-        st.warning(f"⚠️ En riesgo (1 inasistencia): {', '.join(en_riesgo)}")
+    # Alerta de inasistencias — solo visible para admin
+    if st.session_state.es_admin:
+        from resultados import jugadores_a_desactivar, inasistencias_consecutivas
+        en_riesgo = [
+            n for n in {p["jugador_1"]["Jugador"] for p in st.session_state.historial.get("partidos", [])} |
+                       {p["jugador_2"]["Jugador"] for p in st.session_state.historial.get("partidos", [])}
+            if inasistencias_consecutivas(st.session_state.historial, n) == 1
+        ]
+        a_desactivar = jugadores_a_desactivar(st.session_state.historial, limite=2)
+        if a_desactivar:
+            st.error(f"🚫 Desactivados por 2 inasistencias consecutivas: {', '.join(a_desactivar)}")
+        if en_riesgo:
+            st.warning(f"⚠️ En riesgo (1 inasistencia): {', '.join(en_riesgo)}")
 
     if not partidos_completados(st.session_state.historial):
         st.info("Aún no hay resultados cargados. Ve a la pestaña **Cargar Resultados** primero.")
