@@ -149,6 +149,71 @@ def borrar_resultado(historial: dict, partido_id: str) -> None:
     partido["resultado"] = None
 
 
+def registrar_no_jugado(
+    historial: dict,
+    partido_id: str,
+    justificacion: str,
+) -> dict:
+    """
+    Marca un partido como no jugado con una justificación.
+    Opciones: 'Sin acuerdo', 'Por enfermedad', 'Por lesión'
+    """
+    JUSTIFICACIONES_VALIDAS = ["Sin acuerdo", "Por enfermedad", "Por lesión"]
+    if justificacion not in JUSTIFICACIONES_VALIDAS:
+        raise ValueError(f"Justificación inválida. Opciones: {JUSTIFICACIONES_VALIDAS}")
+
+    partido = next((p for p in historial.get("partidos", []) if p["id"] == partido_id), None)
+    if partido is None:
+        raise ValueError(f"Partido {partido_id} no encontrado")
+
+    partido["resultado"] = {
+        "tipo": "no_jugado",
+        "justificacion": justificacion,
+        "fecha_registro": datetime.now().isoformat(timespec="seconds"),
+    }
+    return partido
+
+
+def inasistencias_consecutivas(historial: dict, nombre_jugador: str) -> int:
+    """
+    Cuenta cuántas inasistencias (no_jugado) consecutivas tiene un jugador
+    al final de su historial de partidos.
+    """
+    partidos_jugador = [
+        p for p in historial.get("partidos", [])
+        if p["jugador_1"]["Jugador"] == nombre_jugador
+        or p["jugador_2"]["Jugador"] == nombre_jugador
+    ]
+    # Solo los que tienen resultado
+    con_resultado = [p for p in partidos_jugador if p["resultado"] is not None]
+    if not con_resultado:
+        return 0
+
+    # Contar desde el final hacia atrás
+    consecutivas = 0
+    for p in reversed(con_resultado):
+        if p["resultado"]["tipo"] == "no_jugado":
+            consecutivas += 1
+        else:
+            break
+    return consecutivas
+
+
+def jugadores_a_desactivar(historial: dict, limite: int = 2) -> list[str]:
+    """
+    Retorna lista de jugadores con 'limite' o más inasistencias consecutivas.
+    """
+    nombres = set()
+    for p in historial.get("partidos", []):
+        nombres.add(p["jugador_1"]["Jugador"])
+        nombres.add(p["jugador_2"]["Jugador"])
+
+    return [
+        n for n in nombres
+        if inasistencias_consecutivas(historial, n) >= limite
+    ]
+
+
 def partidos_pendientes(historial: dict) -> list[dict]:
     return [p for p in historial.get("partidos", []) if p["resultado"] is None]
 
@@ -223,6 +288,8 @@ def formatear_marcador(resultado: dict) -> str:
     if resultado is None:
         return "Pendiente"
     if resultado["tipo"] == "wo":
-        return f"W.O. a favor de {resultado['ganador']}"
+        return f"W.O. a favor de {resultado['ganador']} — {resultado.get('nota_wo', '')}"
+    if resultado["tipo"] == "no_jugado":
+        return f"No jugado — {resultado.get('justificacion', '')}"
     sets = resultado["sets"]
     return " · ".join(f"{s['games_1']}-{s['games_2']}" for s in sets)

@@ -21,6 +21,8 @@ from resultados import (
     registrar_partidos_generados,
     registrar_resultado,
     borrar_resultado,
+    registrar_no_jugado,
+    jugadores_a_desactivar,
     partidos_pendientes,
     partidos_completados,
     calcular_ranking,
@@ -598,61 +600,70 @@ with tab_resultados:
 
                 tipo_resultado = st.radio(
                     "Tipo de resultado",
-                    options=["Normal (partido jugado)", f"W.O. a favor de {j1['Jugador']}", f"W.O. a favor de {j2['Jugador']}"],
+                    options=[
+                        "Normal (partido jugado)",
+                        f"W.O. a favor de {j1['Jugador']}",
+                        f"W.O. a favor de {j2['Jugador']}",
+                        "No jugado",
+                    ],
                 )
 
                 with st.form(key=f"form_{partido_sel['id']}"):
                     if tipo_resultado.startswith("Normal"):
                         sets = []
-                        # Set 1
                         st.markdown("**Set 1**")
                         cs1, cs2 = st.columns(2)
                         g1 = cs1.number_input(f"Games {j1['Jugador']}", min_value=0, max_value=7, value=0, step=1, key=f"g1_{partido_sel['id']}_0")
                         g2 = cs2.number_input(f"Games {j2['Jugador']}", min_value=0, max_value=7, value=0, step=1, key=f"g2_{partido_sel['id']}_0")
                         sets.append({"games_1": int(g1), "games_2": int(g2)})
 
-                        # Set 2
                         st.markdown("**Set 2**")
                         cs1, cs2 = st.columns(2)
                         g1 = cs1.number_input(f"Games {j1['Jugador']}", min_value=0, max_value=7, value=0, step=1, key=f"g1_{partido_sel['id']}_1")
                         g2 = cs2.number_input(f"Games {j2['Jugador']}", min_value=0, max_value=7, value=0, step=1, key=f"g2_{partido_sel['id']}_1")
                         sets.append({"games_1": int(g1), "games_2": int(g2)})
 
-                        # Set 3 — tie-break a 10
                         st.markdown("**Set 3 — Tie-break** *(primero en llegar a 10, diferencia de 2)*")
                         cs1, cs2 = st.columns(2)
                         g1 = cs1.number_input(f"Puntos {j1['Jugador']}", min_value=0, max_value=99, value=0, step=1, key=f"g1_{partido_sel['id']}_2")
                         g2 = cs2.number_input(f"Puntos {j2['Jugador']}", min_value=0, max_value=99, value=0, step=1, key=f"g2_{partido_sel['id']}_2")
                         sets.append({"games_1": int(g1), "games_2": int(g2)})
-
                         nota_wo = None
                         tipo = "normal"
+
+                    elif tipo_resultado == "No jugado":
+                        sets = None
+                        nota_wo = None
+                        tipo = "no_jugado"
+                        justificacion = st.selectbox(
+                            "Motivo (obligatorio)",
+                            options=["Sin acuerdo", "Por enfermedad", "Por lesión"],
+                            key=f"just_{partido_sel['id']}",
+                        )
+
                     else:
                         sets = None
-                        nota_wo = st.text_input(
-                            "Evidencia / nota del W.O. (obligatorio)",
-                            placeholder="Ej: Foto enviada al grupo, mensaje del jugador, etc.",
-                        )
                         tipo = "wo_j1" if j1["Jugador"] in tipo_resultado else "wo_j2"
+                        nota_wo = st.text_input(
+                            "Justificación del W.O. (obligatorio)",
+                            placeholder="Ej: El jugador no se presentó, avisó por WhatsApp, etc.",
+                        )
 
                     submitted = st.form_submit_button("💾 Guardar resultado", type="primary", use_container_width=True)
 
                     if submitted:
                         try:
                             if tipo == "normal":
-                                # Detectar si se jugó el set 3
                                 s1, s2, s3 = sets[0], sets[1], sets[2]
                                 sets_1 = sum(1 for s in [s1, s2] if s["games_1"] > s["games_2"])
                                 sets_2 = sum(1 for s in [s1, s2] if s["games_2"] > s["games_1"])
                                 hubo_tercer_set = sets_1 == 1 and sets_2 == 1
-
                                 if s1["games_1"] == 0 and s1["games_2"] == 0:
                                     st.error("Debes ingresar el resultado del Set 1.")
                                 else:
                                     sets_a_guardar = [s1, s2]
                                     if hubo_tercer_set:
                                         sets_a_guardar.append(s3)
-
                                     errores = validar_sets(sets_a_guardar)
                                     if errores:
                                         for e in errores:
@@ -662,9 +673,29 @@ with tab_resultados:
                                         guardar_historial(st.session_state.historial)
                                         st.success("✅ Resultado guardado.")
                                         st.rerun()
+
+                            elif tipo == "no_jugado":
+                                registrar_no_jugado(st.session_state.historial, partido_sel["id"], justificacion)
+                                guardar_historial(st.session_state.historial)
+                                # Verificar si algún jugador debe desactivarse
+                                a_desactivar = jugadores_a_desactivar(st.session_state.historial, limite=2)
+                                jugadores_actuales = {j["nombre"] for j in st.session_state.jugadores_supabase}
+                                nuevos_a_desactivar = [n for n in a_desactivar if n in jugadores_actuales]
+                                if nuevos_a_desactivar:
+                                    from db import set_jugador_activo, get_jugadores
+                                    for nombre in nuevos_a_desactivar:
+                                        jug = next((j for j in st.session_state.jugadores_supabase if j["nombre"] == nombre), None)
+                                        if jug and jug["activo"]:
+                                            set_jugador_activo(jug["id"], False)
+                                    st.session_state.jugadores_supabase = get_jugadores()
+                                    st.warning(f"⚠️ Jugadores desactivados automáticamente por 2 inasistencias consecutivas: {', '.join(nuevos_a_desactivar)}")
+                                else:
+                                    st.success(f"✅ Partido marcado como No jugado — {justificacion}.")
+                                st.rerun()
+
                             else:
                                 if not nota_wo or not nota_wo.strip():
-                                    st.error("Debes ingresar la evidencia/nota del W.O.")
+                                    st.error("Debes ingresar la justificación del W.O.")
                                 else:
                                     registrar_resultado(st.session_state.historial, partido_sel["id"], tipo=tipo, nota_wo=nota_wo.strip())
                                     guardar_historial(st.session_state.historial)
@@ -678,6 +709,19 @@ with tab_resultados:
 # ----------------------------------------------------------------------------
 with tab_ranking:
     st.subheader("🏆 Ranking acumulado de la temporada")
+
+    # Alerta de jugadores con inasistencias consecutivas
+    from resultados import jugadores_a_desactivar, inasistencias_consecutivas
+    en_riesgo = [
+        n for n in {p["jugador_1"]["Jugador"] for p in st.session_state.historial.get("partidos", [])} |
+                   {p["jugador_2"]["Jugador"] for p in st.session_state.historial.get("partidos", [])}
+        if inasistencias_consecutivas(st.session_state.historial, n) == 1
+    ]
+    a_desactivar = jugadores_a_desactivar(st.session_state.historial, limite=2)
+    if a_desactivar:
+        st.error(f"🚫 Desactivados por 2 inasistencias consecutivas: {', '.join(a_desactivar)}")
+    if en_riesgo:
+        st.warning(f"⚠️ En riesgo (1 inasistencia): {', '.join(en_riesgo)}")
 
     if not partidos_completados(st.session_state.historial):
         st.info("Aún no hay resultados cargados. Ve a la pestaña **Cargar Resultados** primero.")
