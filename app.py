@@ -209,7 +209,7 @@ with st.sidebar:
     )
     if archivo_excel is not None:
         try:
-            df_excel = pd.read_excel(archivo_excel)
+            df_excel = pd.read_excel(archivo_excel, sheet_name=0)
             if "Ranking" not in df_excel.columns or "Jugador" not in df_excel.columns:
                 st.error(f"Columnas requeridas: 'Ranking' y 'Jugador'.")
             else:
@@ -281,7 +281,7 @@ if not jugadores_db:
     st.stop()
 
 # Convertir jugadores de BD al formato que espera pairing.py
-jugadores = [{"Ranking": j["ranking"], "Jugador": j["nombre"]} for j in jugadores_db]
+jugadores = [{"Ranking": j["ranking"], "Jugador": j["nombre"], "performance": j.get("performance", 0) or 0} for j in jugadores_db]
 categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
 
 

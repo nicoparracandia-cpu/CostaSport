@@ -153,6 +153,7 @@ def partidos_completados(historial: dict) -> list[dict]:
 def calcular_ranking(historial: dict, jugadores_base: list[dict]):
     """
     Calcula el ranking acumulado de todos los jugadores.
+    Orden de desempate: 1° Puntos · 2° Performance · 3° Ranking inicial
     Retorna un DataFrame ordenado por puntos descendente.
     """
     import pandas as pd
@@ -163,6 +164,7 @@ def calcular_ranking(historial: dict, jugadores_base: list[dict]):
         stats[nombre] = {
             "Jugador": nombre,
             "Ranking inicial": int(j["Ranking"]),
+            "Performance": float(j.get("Performance") or j.get("performance") or 0),
             "PJ": 0, "G": 0, "P": 0, "WO+": 0, "WO-": 0,
             "Puntos": 0,
         }
@@ -195,7 +197,7 @@ def calcular_ranking(historial: dict, jugadores_base: list[dict]):
 
     df = pd.DataFrame(stats.values())
     df = df.sort_values(
-        ["Puntos", "G", "Ranking inicial"],
+        ["Puntos", "Performance", "Ranking inicial"],
         ascending=[False, False, True],
     ).reset_index(drop=True)
     df.insert(0, "Pos.", range(1, len(df) + 1))

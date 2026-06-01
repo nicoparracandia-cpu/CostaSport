@@ -4,7 +4,7 @@ db.py — Costa Sport
 Capa de acceso a Supabase. Reemplaza el historial.json.
 
 Tablas en Supabase:
-  - jugadores  (id, nombre, ranking, activo)
+  - jugadores  (id, nombre, ranking, performance, activo)
   - historial  (id, data)   ← una sola fila con todo el historial serializado
 """
 from __future__ import annotations
@@ -30,34 +30,10 @@ def get_supabase():
 # ============================================================================
 
 def get_jugadores() -> list[dict]:
-    """Retorna la lista de jugadores ordenada por ranking."""
+    """Retorna la lista de jugadores activos ordenada por ranking."""
     sb = get_supabase()
     resp = sb.table("jugadores").select("*").eq("activo", True).order("ranking").execute()
     return resp.data
-
-
-def agregar_jugador(nombre: str, ranking: int) -> None:
-    sb = get_supabase()
-    sb.table("jugadores").insert({"nombre": nombre, "ranking": ranking, "activo": True}).execute()
-
-
-def actualizar_jugadores_desde_excel(jugadores: list[dict]) -> None:
-    """
-    Sincroniza la tabla jugadores con el Excel subido.
-    Inserta o actualiza por nombre.
-    """
-    sb = get_supabase()
-    for j in jugadores:
-        sb.table("jugadores").upsert(
-            {"nombre": j["Jugador"], "ranking": int(j["Ranking"]), "activo": True},
-            on_conflict="nombre"
-        ).execute()
-
-
-def set_jugador_activo(jugador_id: int, activo: bool) -> None:
-    """Activa o desactiva un jugador."""
-    sb = get_supabase()
-    sb.table("jugadores").update({"activo": activo}).eq("id", jugador_id).execute()
 
 
 def get_todos_jugadores() -> list[dict]:
@@ -65,6 +41,32 @@ def get_todos_jugadores() -> list[dict]:
     sb = get_supabase()
     resp = sb.table("jugadores").select("*").order("ranking").execute()
     return resp.data
+
+
+def actualizar_jugadores_desde_excel(jugadores: list[dict]) -> None:
+    """
+    Sincroniza la tabla jugadores con el Excel subido (Hoja2).
+    Soporta columnas: Ranking, Jugador, Performance (opcional), Puntaje (ignorado).
+    """
+    sb = get_supabase()
+    for j in jugadores:
+        data = {
+            "nombre": str(j["Jugador"]),
+            "ranking": int(j["Ranking"]),
+            "activo": True,
+        }
+        if "Performance" in j and j["Performance"] is not None:
+            try:
+                data["performance"] = float(j["Performance"])
+            except (ValueError, TypeError):
+                data["performance"] = 0.0
+        sb.table("jugadores").upsert(data, on_conflict="nombre").execute()
+
+
+def set_jugador_activo(jugador_id: int, activo: bool) -> None:
+    """Activa o desactiva un jugador."""
+    sb = get_supabase()
+    sb.table("jugadores").update({"activo": activo}).eq("id", jugador_id).execute()
 
 
 # ============================================================================
