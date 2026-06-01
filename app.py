@@ -427,8 +427,6 @@ if not jugadores_db:
                     st.success(f"✅ {jugador_sel['nombre']} actualizado — Pts: {nuevo_pts} | Perf: {nuevo_perf}")
                     st.rerun()
 
-render_footer()
-    st.stop()
 
 # Convertir jugadores de BD al formato que espera pairing.py
 jugadores = [{"Ranking": j["ranking"], "Jugador": j["nombre"], "performance": j.get("performance") or 0, "puntos_base": j.get("puntos_base") or 0} for j in jugadores_db]
