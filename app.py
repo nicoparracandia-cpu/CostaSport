@@ -341,91 +341,6 @@ if not jugadores_db:
         """)
         st.divider()
 
-    # ── Importar Puntos Base y Performance ──
-    st.markdown("#### 📊 Puntos base y Performance")
-    st.caption("Actualiza los puntos históricos y el factor de desempate de cada jugador.")
-
-    imp_tab1, imp_tab2 = st.tabs(["📂 Importar desde Excel", "✏️ Editar en tabla"])
-
-    with imp_tab1:
-        st.markdown("El Excel debe tener columnas: **Jugador**, **Puntaje**, **Performance**")
-        archivo_pts = st.file_uploader(
-            "Subir Excel de puntos",
-            type=["xlsx", "xls"],
-            key="upload_puntos",
-        )
-        if archivo_pts:
-            try:
-                df_pts = pd.read_excel(archivo_pts, sheet_name=0)
-                cols_req = {"Jugador", "Puntaje", "Performance"}
-                if not cols_req.issubset(set(df_pts.columns)):
-                    st.error(f"Columnas requeridas: {cols_req}. Encontradas: {list(df_pts.columns)}")
-                else:
-                    st.dataframe(df_pts[["Jugador", "Puntaje", "Performance"]].head(10), hide_index=True, use_container_width=True)
-                    if st.button("💾 Importar puntos y performance", type="primary", use_container_width=True, key="btn_import_pts"):
-                        sb = get_supabase()
-                        actualizados = 0
-                        no_encontrados = []
-                        for _, row in df_pts.iterrows():
-                            nombre = str(row["Jugador"]).strip()
-                            jug = next((j for j in todos if j["nombre"].lower() == nombre.lower()), None)
-                            if jug:
-                                data = {}
-                                if "Puntaje" in df_pts.columns and str(row["Puntaje"]) not in ("nan", ""):
-                                    try: data["puntos_base"] = int(row["Puntaje"])
-                                    except: pass
-                                if "Performance" in df_pts.columns and str(row["Performance"]) not in ("nan", ""):
-                                    try: data["performance"] = float(row["Performance"])
-                                    except: pass
-                                if data:
-                                    sb.table("jugadores").update(data).eq("id", jug["id"]).execute()
-                                    actualizados += 1
-                            else:
-                                no_encontrados.append(nombre)
-                        st.session_state.jugadores_supabase = get_jugadores()
-                        st.success(f"✅ {actualizados} jugadores actualizados.")
-                        if no_encontrados:
-                            st.warning(f"No encontrados en BD: {', '.join(no_encontrados)}")
-                        st.rerun()
-            except Exception as e:
-                st.error(f"Error al leer el Excel: {e}")
-
-    with imp_tab2:
-        st.caption("Edita individualmente el puntaje base y performance de cada jugador.")
-        todos_refresh = get_todos_jugadores()
-        jugador_sel = st.selectbox(
-            "Selecciona jugador",
-            options=todos_refresh,
-            format_func=lambda j: f"#{j['ranking']} {j['nombre']} — Pts base: {j.get('puntos_base') or 0} | Perf: {j.get('performance') or 0}",
-            key="sel_jugador_pts"
-        )
-        if jugador_sel:
-            with st.form("form_editar_pts"):
-                col_p, col_f = st.columns(2)
-                nuevo_pts = col_p.number_input(
-                    "Puntos base",
-                    min_value=0, max_value=99999,
-                    value=int(jugador_sel.get("puntos_base") or 0),
-                    step=25,
-                    key="input_pts_base"
-                )
-                nuevo_perf = col_f.number_input(
-                    "Performance",
-                    min_value=0.0, max_value=1.0,
-                    value=float(jugador_sel.get("performance") or 0.0),
-                    step=0.01,
-                    format="%.2f",
-                    key="input_perf"
-                )
-                if st.form_submit_button("💾 Guardar", type="primary", use_container_width=True):
-                    sb = get_supabase()
-                    sb.table("jugadores").update({
-                        "puntos_base": int(nuevo_pts),
-                        "performance": float(nuevo_perf),
-                    }).eq("id", jugador_sel["id"]).execute()
-                    st.session_state.jugadores_supabase = get_jugadores()
-                    st.success(f"✅ {jugador_sel['nombre']} actualizado — Pts: {nuevo_pts} | Perf: {nuevo_perf}")
-                    st.rerun()
 
 
 # Convertir jugadores de BD al formato que espera pairing.py
@@ -911,6 +826,94 @@ with tab_jugadores:
 
     st.divider()
 
+
+    # ── Importar Puntos Base y Performance ──
+    st.markdown("#### 📊 Puntos base y Performance")
+    st.caption("Actualiza los puntos históricos y el factor de desempate de cada jugador.")
+
+    imp_tab1, imp_tab2 = st.tabs(["📂 Importar desde Excel", "✏️ Editar en tabla"])
+
+    with imp_tab1:
+        st.markdown("El Excel debe tener columnas: **Jugador**, **Puntaje**, **Performance**")
+        archivo_pts = st.file_uploader(
+            "Subir Excel de puntos",
+            type=["xlsx", "xls"],
+            key="upload_puntos",
+        )
+        if archivo_pts:
+            try:
+                df_pts = pd.read_excel(archivo_pts, sheet_name=0)
+                cols_req = {"Jugador", "Puntaje", "Performance"}
+                if not cols_req.issubset(set(df_pts.columns)):
+                    st.error(f"Columnas requeridas: {cols_req}. Encontradas: {list(df_pts.columns)}")
+                else:
+                    st.dataframe(df_pts[["Jugador", "Puntaje", "Performance"]].head(10), hide_index=True, use_container_width=True)
+                    if st.button("💾 Importar puntos y performance", type="primary", use_container_width=True, key="btn_import_pts"):
+                        sb = get_supabase()
+                        actualizados = 0
+                        no_encontrados = []
+                        for _, row in df_pts.iterrows():
+                            nombre = str(row["Jugador"]).strip()
+                            jug = next((j for j in todos if j["nombre"].lower() == nombre.lower()), None)
+                            if jug:
+                                data = {}
+                                if "Puntaje" in df_pts.columns and str(row["Puntaje"]) not in ("nan", ""):
+                                    try: data["puntos_base"] = int(row["Puntaje"])
+                                    except: pass
+                                if "Performance" in df_pts.columns and str(row["Performance"]) not in ("nan", ""):
+                                    try: data["performance"] = float(row["Performance"])
+                                    except: pass
+                                if data:
+                                    sb.table("jugadores").update(data).eq("id", jug["id"]).execute()
+                                    actualizados += 1
+                            else:
+                                no_encontrados.append(nombre)
+                        st.session_state.jugadores_supabase = get_jugadores()
+                        st.success(f"✅ {actualizados} jugadores actualizados.")
+                        if no_encontrados:
+                            st.warning(f"No encontrados en BD: {', '.join(no_encontrados)}")
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Error al leer el Excel: {e}")
+
+    with imp_tab2:
+        st.caption("Edita individualmente el puntaje base y performance de cada jugador.")
+        todos_refresh = get_todos_jugadores()
+        jugador_sel = st.selectbox(
+            "Selecciona jugador",
+            options=todos_refresh,
+            format_func=lambda j: f"#{j['ranking']} {j['nombre']} — Pts base: {j.get('puntos_base') or 0} | Perf: {j.get('performance') or 0}",
+            key="sel_jugador_pts"
+        )
+        if jugador_sel:
+            with st.form("form_editar_pts"):
+                col_p, col_f = st.columns(2)
+                nuevo_pts = col_p.number_input(
+                    "Puntos base",
+                    min_value=0, max_value=99999,
+                    value=int(jugador_sel.get("puntos_base") or 0),
+                    step=25,
+                    key="input_pts_base"
+                )
+                nuevo_perf = col_f.number_input(
+                    "Performance",
+                    min_value=0.0, max_value=1.0,
+                    value=float(jugador_sel.get("performance") or 0.0),
+                    step=0.01,
+                    format="%.2f",
+                    key="input_perf"
+                )
+                if st.form_submit_button("💾 Guardar", type="primary", use_container_width=True):
+                    sb = get_supabase()
+                    sb.table("jugadores").update({
+                        "puntos_base": int(nuevo_pts),
+                        "performance": float(nuevo_perf),
+                    }).eq("id", jugador_sel["id"]).execute()
+                    st.session_state.jugadores_supabase = get_jugadores()
+                    st.success(f"✅ {jugador_sel['nombre']} actualizado — Pts: {nuevo_pts} | Perf: {nuevo_perf}")
+                    st.rerun()
+
+    st.divider()
     st.markdown("#### Agregar jugador manualmente")
     with st.form("form_agregar_jugador"):
         col_n, col_r = st.columns([3, 1])
