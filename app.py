@@ -360,6 +360,12 @@ with tab_ronda:
 
     if st.session_state.ultima_ronda:
         st.subheader("🎯 Última ronda generada")
+
+        # Mostrar notas especiales (ej: jugador con doble partido)
+        for res in st.session_state.ultima_ronda:
+            if res.get("nota"):
+                st.warning(res["nota"])
+
         df_ronda = resultados_a_dataframe(st.session_state.ultima_ronda)
         total = len(df_ronda[df_ronda["Jugador 2"] != "DESCANSA"])
         c1, c2, c3 = st.columns(3)

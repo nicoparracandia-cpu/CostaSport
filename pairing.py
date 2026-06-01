@@ -45,7 +45,12 @@ def dividir_en_categorias(jugadores: list[dict], n_categorias: int = NUM_CATEGOR
 # ============================================================================
 
 def generar_todas_las_rondas_internas(jugadores_categoria: list[dict]) -> list[list[tuple]]:
-    """Genera todas las rondas internas de una categoría."""
+    """
+    Genera todas las rondas internas de una categoría (método del círculo).
+    Si el número es par: todos juegan, sin descanso.
+    Si es impar: todos juegan igualmente (se agrega None para el algoritmo,
+    pero el llamador decide cómo manejar al que "descansa").
+    """
     jugadores = list(jugadores_categoria)
     if len(jugadores) % 2 == 1:
         jugadores.append(None)
@@ -63,6 +68,37 @@ def generar_todas_las_rondas_internas(jugadores_categoria: list[dict]) -> list[l
         rondas.append(ronda)
         rotantes = [rotantes[-1]] + rotantes[:-1]
     return rondas
+
+
+def generar_ronda_interna_sin_descanso(jugadores_categoria: list[dict], idx: int) -> list:
+    """
+    Para categoría impar: el que iba a descansar juega un partido extra
+    contra un rival aleatorio de la misma categoría.
+    Nadie descansa — todos juegan al menos 1 partido.
+    """
+    import random
+    todas = generar_todas_las_rondas_internas(jugadores_categoria)
+    ronda = todas[idx % len(todas)]
+
+    parejas = []
+    jugador_sin_partido = None
+
+    for p1, p2 in ronda:
+        if p1 is None:
+            jugador_sin_partido = p2
+        elif p2 is None:
+            jugador_sin_partido = p1
+        else:
+            parejas.append((p1, p2))
+
+    if jugador_sin_partido is not None:
+        # Elegir rival aleatorio entre todos los que ya tienen pareja
+        rivales_posibles = [j for par in parejas for j in par if j != jugador_sin_partido]
+        if rivales_posibles:
+            rival_extra = random.choice(rivales_posibles)
+            parejas.append((jugador_sin_partido, rival_extra))
+
+    return parejas
 
 
 # ============================================================================
@@ -132,6 +168,7 @@ def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict)
     nombres = list(categorias.keys())
 
     # --- Internos ---
+    ultima_categoria = nombres[-1]  # última categoría (ej: D) recibe trato especial si es impar
     for nombre in nombres:
         jugadores = categorias[nombre]
         if len(jugadores) < 2:
@@ -139,25 +176,49 @@ def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict)
         todas = generar_todas_las_rondas_internas(jugadores)
         total = len(todas)
         idx, ciclo = _avanzar_estado(historial, "internas", nombre, total)
-        ronda = todas[idx]
-        parejas = []
-        descansa = None
-        for p1, p2 in ronda:
-            if p1 is None:
-                descansa = p2
-            elif p2 is None:
-                descansa = p1
-            else:
-                parejas.append((p1, p2))
-        resultados.append({
-            "tipo": "Interno",
-            "bloque": nombre,
-            "ronda": idx + 1,
-            "total_rondas": total,
-            "ciclo": ciclo,
-            "parejas": parejas,
-            "descansan": [descansa] if descansa else [],
-        })
+        es_impar = len(jugadores) % 2 == 1
+        es_ultima = nombre == ultima_categoria
+
+        if es_impar and es_ultima:
+            # Última categoría impar: nadie descansa, el que tocaba descansar juega extra
+            parejas = generar_ronda_interna_sin_descanso(jugadores, idx)
+            # Detectar quién juega doble (aparece en más de una pareja)
+            from collections import Counter
+            conteo = Counter(j["Jugador"] for par in parejas for j in par)
+            juega_doble = [nombre for nombre, cnt in conteo.items() if cnt > 1]
+            nota = f"⚠️ {', '.join(juega_doble)} juega 2 partidos esta ronda (sin descanso)." if juega_doble else ""
+            resultados.append({
+                "tipo": "Interno",
+                "bloque": nombre,
+                "ronda": idx + 1,
+                "total_rondas": total,
+                "ciclo": ciclo,
+                "parejas": parejas,
+                "descansan": [],
+                "nota": nota,
+            })
+        else:
+            # Categorías pares o no-últimas: round-robin normal
+            ronda = todas[idx]
+            parejas = []
+            descansa = None
+            for p1, p2 in ronda:
+                if p1 is None:
+                    descansa = p2
+                elif p2 is None:
+                    descansa = p1
+                else:
+                    parejas.append((p1, p2))
+            resultados.append({
+                "tipo": "Interno",
+                "bloque": nombre,
+                "ronda": idx + 1,
+                "total_rondas": total,
+                "ciclo": ciclo,
+                "parejas": parejas,
+                "descansan": [descansa] if descansa else [],
+                "nota": "",
+            })
 
     # --- Cruces (A-B, C-D, ...) ---
     for i in range(0, len(nombres), 2):
