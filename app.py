@@ -385,6 +385,111 @@ with tab_ronda:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
+        # ── Editor de emparejamientos (solo admin, solo si no hay resultados aún) ──
+        if st.session_state.es_admin:
+            partidos_ronda = st.session_state.historial.get("partidos", [])
+            partidos_sin_resultado = [p for p in partidos_ronda if p["resultado"] is None]
+            todos_con_resultado = len(partidos_sin_resultado) == 0
+
+            if todos_con_resultado:
+                st.info("Ya hay resultados registrados — no se puede editar el emparejamiento.")
+            else:
+                with st.expander("✏️ Editar emparejamientos"):
+                    st.caption("Solo disponible antes de registrar cualquier resultado.")
+
+                    # Obtener todos los jugadores activos para los selectbox
+                    nombres_jugadores = sorted([j["nombre"] for j in st.session_state.jugadores_supabase])
+
+                    st.markdown("#### Cambiar jugador en una pareja")
+                    # Seleccionar partido a editar
+                    def label_partido_edicion(p):
+                        return (f"[{p['tipo']}] {p['bloque']} · "
+                                f"#{p['jugador_1']['Ranking']} {p['jugador_1']['Jugador']} "
+                                f"vs #{p['jugador_2']['Ranking']} {p['jugador_2']['Jugador']}")
+
+                    partido_editar = st.selectbox(
+                        "Partido a editar",
+                        options=partidos_sin_resultado,
+                        format_func=label_partido_edicion,
+                        key="partido_editar"
+                    )
+
+                    if partido_editar:
+                        col_j1, col_vs, col_j2 = st.columns([5, 1, 5])
+                        with col_j1:
+                            nuevo_j1 = st.selectbox(
+                                "Jugador 1",
+                                options=nombres_jugadores,
+                                index=nombres_jugadores.index(partido_editar["jugador_1"]["Jugador"])
+                                      if partido_editar["jugador_1"]["Jugador"] in nombres_jugadores else 0,
+                                key="edit_j1"
+                            )
+                        with col_vs:
+                            st.markdown("<br><center>vs</center>", unsafe_allow_html=True)
+                        with col_j2:
+                            nuevo_j2 = st.selectbox(
+                                "Jugador 2",
+                                options=nombres_jugadores,
+                                index=nombres_jugadores.index(partido_editar["jugador_2"]["Jugador"])
+                                      if partido_editar["jugador_2"]["Jugador"] in nombres_jugadores else 0,
+                                key="edit_j2"
+                            )
+
+                        if st.button("💾 Guardar cambio", type="primary", key="btn_guardar_edicion"):
+                            if nuevo_j1 == nuevo_j2:
+                                st.error("Los dos jugadores no pueden ser el mismo.")
+                            else:
+                                # Buscar ranking de los nuevos jugadores
+                                jug_data = {j["nombre"]: j for j in st.session_state.jugadores_supabase}
+                                j1_data = jug_data.get(nuevo_j1, {})
+                                j2_data = jug_data.get(nuevo_j2, {})
+                                # Actualizar en historial
+                                for p in st.session_state.historial["partidos"]:
+                                    if p["id"] == partido_editar["id"]:
+                                        p["jugador_1"] = {"Ranking": j1_data.get("ranking", 0), "Jugador": nuevo_j1}
+                                        p["jugador_2"] = {"Ranking": j2_data.get("ranking", 0), "Jugador": nuevo_j2}
+                                        break
+                                guardar_historial(st.session_state.historial)
+                                st.success(f"✅ Pareja actualizada: {nuevo_j1} vs {nuevo_j2}")
+                                st.rerun()
+
+                    st.divider()
+                    st.markdown("#### Intercambiar jugadores entre dos parejas")
+                    col_p1, col_p2 = st.columns(2)
+                    with col_p1:
+                        partido_a = st.selectbox(
+                            "Pareja A",
+                            options=partidos_sin_resultado,
+                            format_func=label_partido_edicion,
+                            key="intercambio_a"
+                        )
+                        pos_a = st.radio("Jugador de A a intercambiar", ["Jugador 1", "Jugador 2"], key="pos_a", horizontal=True)
+                    with col_p2:
+                        partido_b = st.selectbox(
+                            "Pareja B",
+                            options=partidos_sin_resultado,
+                            format_func=label_partido_edicion,
+                            key="intercambio_b"
+                        )
+                        pos_b = st.radio("Jugador de B a intercambiar", ["Jugador 1", "Jugador 2"], key="pos_b", horizontal=True)
+
+                    if st.button("🔄 Intercambiar", type="primary", key="btn_intercambiar"):
+                        if partido_a["id"] == partido_b["id"]:
+                            st.error("Selecciona dos parejas distintas.")
+                        else:
+                            key_a = "jugador_1" if pos_a == "Jugador 1" else "jugador_2"
+                            key_b = "jugador_1" if pos_b == "Jugador 1" else "jugador_2"
+                            for p in st.session_state.historial["partidos"]:
+                                if p["id"] == partido_a["id"]:
+                                    pa = p
+                                if p["id"] == partido_b["id"]:
+                                    pb = p
+                            # Intercambiar
+                            pa[key_a], pb[key_b] = pb[key_b], pa[key_a]
+                            guardar_historial(st.session_state.historial)
+                            st.success("✅ Jugadores intercambiados correctamente.")
+                            st.rerun()
+
 # ----------------------------------------------------------------------------
 #  TAB 2: Cargar Resultados
 # ----------------------------------------------------------------------------
