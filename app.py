@@ -171,6 +171,10 @@ if "ultima_ronda" not in st.session_state:
 if "jugadores_supabase" not in st.session_state:
     st.session_state.jugadores_supabase = get_jugadores()
 
+if "es_admin" not in st.session_state:
+    st.session_state.es_admin = False
+    st.session_state.jugadores_supabase = get_jugadores()
+
 
 def _guardar_y_rerun():
     """Guarda el historial en Supabase y hace rerun."""
@@ -186,66 +190,82 @@ with st.sidebar:
         st.image(str(LOGO_PATH), use_container_width=True)
 
     st.divider()
-    st.header("📥 Lista de jugadores")
 
-    # Mostrar jugadores actuales en Supabase
-    jugadores_db = st.session_state.jugadores_supabase
-    if jugadores_db:
-        st.success(f"✅ {len(jugadores_db)} jugadores en base de datos")
-        with st.expander("Ver jugadores"):
-            st.dataframe(
-                pd.DataFrame(jugadores_db)[["ranking", "nombre"]].rename(
-                    columns={"ranking": "Ranking", "nombre": "Jugador"}
-                ),
-                hide_index=True,
+    # ── Login / Logout Admin ──
+    if st.session_state.es_admin:
+        st.success("🔐 Modo Admin activo")
+        if st.button("Cerrar sesión admin", use_container_width=True):
+            st.session_state.es_admin = False
+            st.rerun()
+    else:
+        with st.expander("🔐 Acceso Admin"):
+            pwd = st.text_input("Contraseña", type="password", key="pwd_input")
+            if st.button("Ingresar", use_container_width=True):
+                if pwd == st.secrets.get("ADMIN_PASSWORD", ""):
+                    st.session_state.es_admin = True
+                    st.rerun()
+                else:
+                    st.error("Contraseña incorrecta.")
+
+    st.divider()
+
+    # ── Sección solo visible para admin ──
+    if st.session_state.es_admin:
+        st.header("📥 Lista de jugadores")
+        jugadores_db = st.session_state.jugadores_supabase
+        if jugadores_db:
+            st.success(f"✅ {len(jugadores_db)} jugadores en BD")
+            with st.expander("Ver jugadores"):
+                st.dataframe(
+                    pd.DataFrame(jugadores_db)[["ranking", "nombre"]].rename(
+                        columns={"ranking": "Ranking", "nombre": "Jugador"}
+                    ),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+        archivo_excel = st.file_uploader(
+            "Actualizar lista (Excel)",
+            type=["xlsx", "xls"],
+            help="Columnas: Ranking, Jugador, Performance, Puntaje",
+        )
+        if archivo_excel is not None:
+            try:
+                df_excel = pd.read_excel(archivo_excel, sheet_name=0)
+                if "Ranking" not in df_excel.columns or "Jugador" not in df_excel.columns:
+                    st.error("Columnas requeridas: 'Ranking' y 'Jugador'.")
+                else:
+                    if st.button("💾 Guardar jugadores en BD", type="primary", use_container_width=True):
+                        with st.spinner("Guardando..."):
+                            actualizar_jugadores_desde_excel(df_excel.to_dict("records"))
+                            st.session_state.jugadores_supabase = get_jugadores()
+                        st.success(f"✅ {len(df_excel)} jugadores guardados.")
+                        st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo leer el Excel: {e}")
+
+        st.divider()
+        if st.session_state.historial:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            st.download_button(
+                label="💾 Backup historial.json",
+                data=historial_a_json(st.session_state.historial),
+                file_name=f"historial_{timestamp}.json",
+                mime="application/json",
                 use_container_width=True,
             )
-
-    # Subir Excel para actualizar jugadores
-    archivo_excel = st.file_uploader(
-        "Actualizar lista (Excel)",
-        type=["xlsx", "xls"],
-        help="Columnas requeridas: 'Ranking' y 'Jugador'. Actualiza la base de datos.",
-    )
-    if archivo_excel is not None:
-        try:
-            df_excel = pd.read_excel(archivo_excel, sheet_name=0)
-            if "Ranking" not in df_excel.columns or "Jugador" not in df_excel.columns:
-                st.error(f"Columnas requeridas: 'Ranking' y 'Jugador'.")
-            else:
-                if st.button("💾 Guardar jugadores en BD", type="primary", use_container_width=True):
-                    with st.spinner("Guardando..."):
-                        actualizar_jugadores_desde_excel(df_excel.to_dict("records"))
-                        st.session_state.jugadores_supabase = get_jugadores()
-                    st.success(f"✅ {len(df_excel)} jugadores guardados.")
-                    st.rerun()
-        except Exception as e:
-            st.error(f"No se pudo leer el Excel: {e}")
+        if st.button("🔄 Reiniciar todo", use_container_width=True):
+            st.session_state.historial = {}
+            st.session_state.ultima_ronda = None
+            guardar_historial({})
+            st.success("Reiniciado.")
+            st.rerun()
 
     st.divider()
     n_categorias = st.number_input(
         "Número de categorías",
         min_value=2, max_value=8, value=4, step=2,
     )
-
-    st.divider()
-    # Descarga del historial (por si quieres un backup)
-    if st.session_state.historial:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-        st.download_button(
-            label="💾 Backup historial.json",
-            data=historial_a_json(st.session_state.historial),
-            file_name=f"historial_{timestamp}.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-
-    if st.button("🔄 Reiniciar todo", use_container_width=True):
-        st.session_state.historial = {}
-        st.session_state.ultima_ronda = None
-        guardar_historial({})
-        st.success("Reiniciado.")
-        st.rerun()
 
 
 # ============================================================================
@@ -526,6 +546,9 @@ with tab_ranking:
 #  TAB 4: Gestión de Jugadores
 # ----------------------------------------------------------------------------
 with tab_jugadores:
+    if not st.session_state.es_admin:
+        st.warning("🔐 Esta sección es solo para administradores. Ingresa con tu contraseña en el panel lateral.")
+        st.stop()
     st.subheader("⚙️ Gestión de jugadores")
 
     todos = get_todos_jugadores()
