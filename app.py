@@ -1417,10 +1417,10 @@ with tab_torneos:
                     svgs_list = generar_svg_grupos(partidos, participantes, tipo_t, t["nombre"])
                     svg_bracket = svgs_list[0] if svgs_list else ""
 
-                # Mostrar SVG
+                # Mostrar SVG con scroll horizontal para brackets grandes
                 for svg in svgs_list:
                     st.markdown(
-                        f'<div style="overflow-x:auto;border-radius:12px">{svg}</div>',
+                        f'<div style="overflow-x:auto;overflow-y:auto;max-height:600px;border-radius:12px;border:1px solid #2A2F3E">{svg}</div>',
                         unsafe_allow_html=True
                     )
                     st.divider()

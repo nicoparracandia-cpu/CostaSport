@@ -172,9 +172,13 @@ def generar_svg_eliminacion(
     total_h = total_h_matches + 100
 
     lines = []
-    lines.append(f'<svg width="100%" viewBox="0 0 {total_w} {total_h}" '
+    # Limitar altura máxima del SVG — con muchos jugadores el SVG puede ser muy alto
+    # Usamos max_h para limitar el alto visible y permitir scroll
+    lines.append(f'<svg width="{max(total_w, 800)}" height="{min(total_h, 600)}" '
+                 f'viewBox="0 0 {total_w} {total_h}" '
                  f'xmlns="http://www.w3.org/2000/svg" '
-                 f'style="background:{COSTA_DARK};border-radius:12px;font-family:sans-serif">')
+                 f'preserveAspectRatio="xMinYMin meet" '
+                 f'style="background:{COSTA_DARK};border-radius:12px;font-family:sans-serif;max-width:100%">')
 
     # Título
     lines.append(f'<text x="{total_w//2}" y="28" '
@@ -370,9 +374,13 @@ def generar_svg_round_robin(
     total_h = 60 + (len(tabla) + 1) * row_h + 20
 
     lines = []
-    lines.append(f'<svg width="100%" viewBox="0 0 {total_w} {total_h}" '
+    # Limitar altura máxima del SVG — con muchos jugadores el SVG puede ser muy alto
+    # Usamos max_h para limitar el alto visible y permitir scroll
+    lines.append(f'<svg width="{max(total_w, 800)}" height="{min(total_h, 600)}" '
+                 f'viewBox="0 0 {total_w} {total_h}" '
                  f'xmlns="http://www.w3.org/2000/svg" '
-                 f'style="background:{COSTA_DARK};border-radius:12px;font-family:sans-serif">')
+                 f'preserveAspectRatio="xMinYMin meet" '
+                 f'style="background:{COSTA_DARK};border-radius:12px;font-family:sans-serif;max-width:100%">')
 
     lines.append(f'<text x="{total_w//2}" y="24" text-anchor="middle" '
                  f'fill="{COSTA_BLUE}" font-size="13" font-weight="600">{titulo}</text>')

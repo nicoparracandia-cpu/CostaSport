@@ -191,38 +191,56 @@ def nombre_participante(p: dict, tipo: str = "singles") -> str:
 
 
 def generar_bracket_eliminacion(sb, torneo_id: int, participantes: list[dict], tipo: str) -> None:
-    """Genera bracket de eliminación directa con BYEs automáticos."""
+    """
+    Genera bracket de eliminación directa.
+    Usa el campo 'seed' como posición en el bracket (ya fue asignado por aplicar_sorteo_supabase).
+    Si los seeds son posiciones del sorteo (valores altos), los usa directamente.
+    Si son seeds de cabeza de serie (valores bajos, 1-8), aplica sorteo ATP.
+    """
     import math
+    from bracket import hacer_sorteo
+
     n = len(participantes)
-    # Potencia de 2 más cercana hacia arriba
     size = 2 ** math.ceil(math.log2(n)) if n > 1 else 2
-    byes = size - n
 
-    # Ordenar por seed
-    seeded = sorted(participantes, key=lambda x: x.get("seed") or 999)
+    # Verificar si ya se hizo el sorteo (seeds son posiciones 1..size)
+    seeds = [p.get("seed") or 0 for p in participantes]
+    max_seed = max(seeds) if seeds else 0
 
-    # Distribuir BYEs: los mejores seeds reciben BYE
-    bracket = []
-    for i, p in enumerate(seeded):
-        bracket.append(p)
-    for _ in range(byes):
-        bracket.append(None)  # BYE
+    if max_seed >= n:
+        # Seeds son posiciones del bracket (ya sorteado) — usar directamente
+        bracket = [None] * size
+        for p in participantes:
+            pos = (p.get("seed") or 1) - 1
+            if 0 <= pos < size:
+                bracket[pos] = p
+        # Llenar posiciones vacías con participantes sin seed
+        sin_pos = [p for p in participantes if not p.get("seed") or p.get("seed") == 0]
+        for i in range(size):
+            if bracket[i] is None and sin_pos:
+                bracket[i] = sin_pos.pop(0)
+    else:
+        # No se hizo sorteo — aplicar sorteo ATP automáticamente
+        bracket = hacer_sorteo(participantes, "eliminacion")
 
     # Crear partidos de primera ronda
     fase = _nombre_fase(size)
     for i in range(0, size, 2):
         p1 = bracket[i]
-        p2 = bracket[i + 1]
+        p2 = bracket[i + 1] if i + 1 < size else None
         if p1 is None and p2 is None:
             continue
-        # Si uno es BYE, el otro avanza automáticamente (no se crea partido)
         if p1 is None or p2 is None:
             continue
         crear_partido(sb, torneo_id, fase, p1["id"], p2["id"], orden=i // 2 + 1)
 
 
 def _nombre_fase(size: int) -> str:
-    nombres = {2: "final", 4: "semifinal", 8: "cuartos", 16: "octavos", 32: "dieciseisavos"}
+    nombres = {
+        2: "final", 4: "semifinal", 8: "cuartos",
+        16: "octavos", 32: "dieciseisavos",
+        64: "treintaidosavos", 128: "sesentaicuatroavos",
+    }
     return nombres.get(size, f"ronda_{size}")
 
 
