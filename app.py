@@ -1433,10 +1433,12 @@ with tab_torneos:
                     if st.button("📄 Generar PDF brandeado", type="primary", use_container_width=True):
                         with st.spinner("Generando PDF..."):
                             try:
-                                pdf_bytes = generar_pdf_bracket(
-                                    svgs_list,
-                                    t["nombre"],
-                                    subtitulo_pdf,
+                                from bracket import generar_pdf_desde_partidos
+                                pdf_bytes = generar_pdf_desde_partidos(
+                                    partidos=partidos,
+                                    titulo=t["nombre"],
+                                    subtitulo=subtitulo_pdf,
+                                    tipo=tipo_t,
                                     logo_path="assets/logo.png",
                                 )
                                 st.session_state["pdf_bracket"] = pdf_bytes

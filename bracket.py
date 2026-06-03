@@ -113,12 +113,24 @@ def generar_svg_eliminacion(
 ) -> str:
     """Genera SVG completo del bracket de eliminación directa."""
 
-    # Organizar partidos por fase
-    orden_fases = ["dieciseisavos", "octavos", "cuartos", "semifinal", "final"]
+    # Organizar partidos por fase — incluye rondas numéricas para torneos grandes
+    orden_fases_fijo = [
+        "sesentaicuatroavos", "treintaidosavos", "dieciseisavos",
+        "octavos", "cuartos", "semifinal", "final"
+    ]
+    # Detectar fases del tipo "ronda_N" y ordenarlas por N descendente
+    fases_en_partidos = list(dict.fromkeys(p["fase"] for p in partidos))
+    rondas_numericas = sorted(
+        [f for f in fases_en_partidos if f.startswith("ronda_")],
+        key=lambda x: int(x.split("_")[1]) if x.split("_")[1].isdigit() else 0,
+        reverse=True
+    )
     fases_presentes = []
-    for f in orden_fases:
-        if any(p["fase"] == f for p in partidos):
+    for f in orden_fases_fijo:
+        if f in fases_en_partidos:
             fases_presentes.append(f)
+    # Agregar rondas numéricas en orden correcto (mayor primero = primera ronda)
+    fases_presentes = rondas_numericas + fases_presentes
 
     if not fases_presentes:
         return _svg_vacio(titulo)
@@ -613,4 +625,136 @@ def generar_pdf_simple(
             c.showPage()
 
     c.save()
+    return buf.getvalue()
+
+def generar_pdf_desde_partidos(
+    partidos: list[dict],
+    titulo: str,
+    subtitulo: str,
+    tipo: str = "singles",
+    logo_path: str = "assets/logo.png",
+) -> bytes:
+    """
+    Genera PDF brandeado con tabla de partidos por fase.
+    No requiere cairosvg — usa reportlab puro.
+    """
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.lib.enums import TA_CENTER
+
+    page_w, page_h = landscape(A4)
+    buf = io.BytesIO()
+
+    BLUE  = HexColor("#33B9F3")
+    DARK  = HexColor("#0E1117")
+    MUTED = HexColor("#8B9CC8")
+    WIN   = HexColor("#1A2744")
+    LOSE  = HexColor("#131720")
+    GRAY  = HexColor("#2A2F3E")
+
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+        rightMargin=1.5*cm, leftMargin=1.5*cm,
+        topMargin=0.8*cm, bottomMargin=0.8*cm)
+
+    styles = getSampleStyleSheet()
+    def sty(size=9, bold=False, color=white, align=TA_CENTER):
+        return ParagraphStyle("x", parent=styles["Normal"],
+            fontSize=size, fontName="Helvetica-Bold" if bold else "Helvetica",
+            textColor=color, alignment=align)
+
+    story = []
+
+    # Header
+    logo = Path(logo_path)
+    if not logo.exists():
+        logo = Path("assets/logo.png")
+    logo_cell = ""
+    if logo.exists():
+        try:
+            logo_cell = RLImage(str(logo), width=1.2*cm, height=1.2*cm)
+        except:
+            pass
+
+    hdr = Table([[
+        logo_cell,
+        Paragraph(f"<b>{titulo}</b>", sty(16, True, BLUE, TA_CENTER)),
+        Paragraph(f"{subtitulo}<br/>{datetime.now().strftime('%d/%m/%Y')}", sty(9, False, MUTED, TA_CENTER)),
+    ]], colWidths=[2*cm, page_w-7*cm, 4*cm])
+    hdr.setStyle(TableStyle([
+        ("BACKGROUND", (0,0),(-1,-1), DARK),
+        ("VALIGN", (0,0),(-1,-1), "MIDDLE"),
+        ("TOPPADDING", (0,0),(-1,-1), 8),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 8),
+    ]))
+    story.append(hdr)
+    story.append(Spacer(1, 0.4*cm))
+
+    # Agrupar partidos por fase
+    fases = list(dict.fromkeys(p["fase"] for p in partidos))
+    for fase in fases:
+        pts_fase = [p for p in partidos if p["fase"] == fase]
+        label_fase = fase.replace("_"," ").upper()
+
+        story.append(Paragraph(label_fase, sty(9, True, BLUE, TA_CENTER)))
+        story.append(Spacer(1, 0.15*cm))
+
+        col_w = (page_w - 3*cm) / 5
+        tabla = [[ Paragraph(h, sty(8, True, BLUE, TA_CENTER))
+                   for h in ["Seed", "Jugador 1", "Resultado", "Jugador 2", "Ganador"] ]]
+
+        for m in pts_fase:
+            p1 = m.get("participante1") or {}
+            p2 = m.get("participante2") or {}
+            gan = m.get("ganador") or {}
+            gan_id = m.get("ganador_id")
+            sets = (m.get("resultado") or {}).get("sets", [])
+
+            if tipo == "dobles":
+                n1 = f"{p1.get('jugador1_nombre','')} / {p1.get('jugador2_nombre','')}"
+                n2 = f"{p2.get('jugador1_nombre','')} / {p2.get('jugador2_nombre','')}"
+                n_gan = f"{gan.get('jugador1_nombre','')} / {gan.get('jugador2_nombre','')}" if gan_id else "Por definir"
+            else:
+                n1 = p1.get("jugador1_nombre", "—")
+                n2 = p2.get("jugador1_nombre", "—")
+                n_gan = gan.get("jugador1_nombre", "Por definir") if gan_id else "Por definir"
+
+            marc = " / ".join(f"{s['games_1']}-{s['games_2']}" for s in sets) if sets else "Pendiente"
+            s1 = p1.get("seed") or ""
+            s2 = p2.get("seed") or ""
+
+            es_gan1 = gan_id and gan_id == p1.get("id")
+            es_gan2 = gan_id and gan_id == p2.get("id")
+
+            tabla.append([
+                Paragraph(str(s1) if s1 else "—", sty(8, False, MUTED, TA_CENTER)),
+                Paragraph(n1, sty(8, es_gan1, BLUE if es_gan1 else white, TA_CENTER)),
+                Paragraph(marc, sty(8, False, MUTED, TA_CENTER)),
+                Paragraph(n2, sty(8, es_gan2, BLUE if es_gan2 else white, TA_CENTER)),
+                Paragraph(n_gan, sty(8, bool(gan_id), BLUE if gan_id else MUTED, TA_CENTER)),
+            ])
+
+        t = Table(tabla, colWidths=[col_w*0.4, col_w*1.4, col_w*0.8, col_w*1.4, col_w*0.9], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0,0),(-1,0), WIN),
+            ("ROWBACKGROUNDS", (0,1),(-1,-1), [DARK, LOSE]),
+            ("GRID", (0,0),(-1,-1), 0.3, GRAY),
+            ("TOPPADDING", (0,0),(-1,-1), 4),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 4),
+            ("LEFTPADDING", (0,0),(-1,-1), 4),
+            ("VALIGN", (0,0),(-1,-1), "MIDDLE"),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 0.4*cm))
+
+    # Footer
+    story.append(Spacer(1, 0.2*cm))
+    story.append(Paragraph(
+        f"Costa Sport · Tennis Club · {datetime.now().year}",
+        sty(7, False, MUTED, TA_CENTER)
+    ))
+
+    doc.build(story)
     return buf.getvalue()
