@@ -1418,7 +1418,11 @@ with tab_torneos:
 
                 # Mostrar SVG
                 for svg in svgs_list:
-                    st.components.v1.html(svg, height=500, scrolling=True)
+                    st.markdown(
+                        f'<div style="overflow-x:auto;border-radius:12px">{svg}</div>',
+                        unsafe_allow_html=True
+                    )
+                    st.divider()
 
                 st.divider()
 

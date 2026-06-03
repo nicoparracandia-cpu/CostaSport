@@ -185,6 +185,14 @@ def generar_svg_eliminacion(
             seed1 = p1.get("seed", "")
             seed2 = p2.get("seed", "")
 
+            # Data attributes para PDF
+            marc1_str = marc1 or ""
+            marc2_str = marc2 or ""
+            gan_nombre = nombre_participante(gan, tipo) if gan_id else ""
+            lines.append(
+                f'<g data-fase="{fase}" data-j1="{n1}" data-j2="{n2}" ' +
+                f'data-marc="{marc1_str}/{marc2_str}" data-gan="{gan_nombre}"></g>'
+            )
             # Caja jugador 1
             lines.append(f'<rect x="{x}" y="{y}" width="{BOX_W}" height="{BOX_H}" '
                          f'rx="4" fill="{bg1}" stroke="{GRAY_LINE}" stroke-width="0.5"/>')
@@ -410,88 +418,138 @@ def generar_pdf_bracket(
     logo_path: str = "assets/logo.png",
 ) -> bytes:
     """
-    Genera PDF brandeado con logo Costa Sport, título y bracket SVG.
-    Retorna bytes del PDF.
+    Genera PDF brandeado con logo + bracket como tabla textual.
+    No requiere cairosvg ni libcairo.
     """
     from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.utils import ImageReader
-    from reportlab.lib.colors import HexColor
-    import cairosvg
+    from reportlab.lib.colors import HexColor, white, black
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
     page_w, page_h = landscape(A4)
     buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=landscape(A4))
 
     BLUE = HexColor("#33B9F3")
     DARK = HexColor("#0E1117")
-    WHITE = HexColor("#FFFFFF")
     MUTED = HexColor("#8B9CC8")
+    WIN = HexColor("#1A2744")
+    LOSE = HexColor("#131720")
+
+    doc = SimpleDocTemplate(
+        buf, pagesize=landscape(A4),
+        rightMargin=1.5*cm, leftMargin=1.5*cm,
+        topMargin=1*cm, bottomMargin=1*cm
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("titulo", parent=styles["Normal"],
+        fontSize=18, fontName="Helvetica-Bold", textColor=BLUE,
+        alignment=TA_CENTER, spaceAfter=4)
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"],
+        fontSize=10, fontName="Helvetica", textColor=MUTED,
+        alignment=TA_CENTER, spaceAfter=12)
+    cell_style = ParagraphStyle("cell", parent=styles["Normal"],
+        fontSize=9, fontName="Helvetica", textColor=white)
+    cell_win = ParagraphStyle("win", parent=styles["Normal"],
+        fontSize=9, fontName="Helvetica-Bold", textColor=BLUE)
+    fase_style = ParagraphStyle("fase", parent=styles["Normal"],
+        fontSize=8, fontName="Helvetica", textColor=MUTED, alignment=TA_CENTER)
+
+    story = []
+
+    # Logo + título
+    logo = Path(logo_path)
+    if not logo.exists():
+        logo = Path("assets/logo.png")
+
+    header_data = [[]]
+    if logo.exists():
+        try:
+            img = RLImage(str(logo), width=1.2*cm, height=1.2*cm)
+            header_data[0].append(img)
+        except:
+            header_data[0].append("")
+    else:
+        header_data[0].append("")
+
+    header_data[0].append(
+        Paragraph(f"<b>{titulo}</b><br/><font size='9' color='#8B9CC8'>{subtitulo}</font>", title_style)
+    )
+    header_data[0].append(
+        Paragraph(f"Costa Sport · Tennis Club<br/><font size='8'>{datetime.now().strftime('%d/%m/%Y')}</font>", sub_style)
+    )
+
+    header_table = Table(header_data, colWidths=[2*cm, page_w - 7*cm, 4*cm])
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("BACKGROUND", (0,0), (-1,-1), DARK),
+        ("ROWBACKGROUNDS", (0,0), (-1,-1), [DARK]),
+        ("TOPPADDING", (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 0.4*cm))
 
     svgs = svg_content if isinstance(svg_content, list) else [svg_content]
 
-    for page_i, svg in enumerate(svgs):
-        # Fondo oscuro
-        c.setFillColor(DARK)
-        c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+    for svg_i, svg in enumerate(svgs):
+        # Extraer datos del SVG para tabla textual
+        filas = _extraer_partidos_de_svg(svg)
+        if not filas:
+            story.append(Paragraph("Sin partidos generados", sub_style))
+            continue
 
-        # Header azul
-        c.setFillColor(BLUE)
-        c.rect(0, page_h - 60, page_w, 60, fill=1, stroke=0)
+        # Agrupar por fase
+        fases = list(dict.fromkeys(f["fase"] for f in filas))
+        for fase in fases:
+            story.append(Paragraph(fase.replace("_", " ").upper(), fase_style))
+            story.append(Spacer(1, 0.1*cm))
+            matches_fase = [f for f in filas if f["fase"] == fase]
+            col_w = (page_w - 3*cm) / 4
+            tabla_data = [["Jugador 1", "Resultado", "Jugador 2", "Ganador"]]
+            for m in matches_fase:
+                tabla_data.append([
+                    Paragraph(m["j1"], cell_win if m["ganador"] == m["j1"] else cell_style),
+                    Paragraph(m["marcador"], cell_style),
+                    Paragraph(m["j2"], cell_win if m["ganador"] == m["j2"] else cell_style),
+                    Paragraph(m["ganador"] or "Por definir", cell_win if m["ganador"] else cell_style),
+                ])
+            t = Table(tabla_data, colWidths=[col_w]*4, repeatRows=1)
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (-1,0), HexColor("#1A2744")),
+                ("TEXTCOLOR", (0,0), (-1,0), BLUE),
+                ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE", (0,0), (-1,0), 8),
+                ("ROWBACKGROUNDS", (0,1), (-1,-1), [DARK, LOSE]),
+                ("GRID", (0,0), (-1,-1), 0.3, HexColor("#2A2F3E")),
+                ("TOPPADDING", (0,0), (-1,-1), 4),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+                ("LEFTPADDING", (0,0), (-1,-1), 6),
+                ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 0.3*cm))
 
-        # Logo
-        logo = Path(logo_path)
-        if not logo.exists():
-            logo = Path("assets/logo.png")
-        if logo.exists():
-            try:
-                img = ImageReader(str(logo))
-                c.drawImage(img, 20, page_h - 54, width=44, height=44,
-                           mask="auto", preserveAspectRatio=True)
-            except Exception:
-                pass
+        if svg_i < len(svgs) - 1:
+            from reportlab.platypus import PageBreak
+            story.append(PageBreak())
 
-        # Título en header
-        c.setFillColor(HexColor("#0E1117"))
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(76, page_h - 28, titulo)
-        c.setFont("Helvetica", 11)
-        c.drawString(76, page_h - 46, subtitulo)
-
-        # Fecha
-        fecha = datetime.now().strftime("%d/%m/%Y")
-        c.setFont("Helvetica", 9)
-        c.drawRightString(page_w - 20, page_h - 28, f"Costa Sport · Tennis Club")
-        c.drawRightString(page_w - 20, page_h - 44, fecha)
-
-        # Convertir SVG a PNG e insertar
-        try:
-            png_bytes = cairosvg.svg2png(
-                bytestring=svg.encode("utf-8"),
-                output_width=int(page_w - 40),
-                output_height=int(page_h - 100),
-            )
-            png_buf = io.BytesIO(png_bytes)
-            img_bracket = ImageReader(png_buf)
-            c.drawImage(img_bracket, 20, 30, width=page_w - 40, height=page_h - 100,
-                       preserveAspectRatio=True, mask="auto")
-        except Exception as e:
-            c.setFillColor(MUTED)
-            c.setFont("Helvetica", 11)
-            c.drawString(40, page_h / 2, f"Error generando imagen: {e}")
-
-        # Footer
-        c.setFillColor(MUTED)
-        c.setFont("Helvetica", 8)
-        c.drawCentredString(page_w / 2, 12, f"Costa Sport · Escalerilla {datetime.now().year}")
-
-        if page_i < len(svgs) - 1:
-            c.showPage()
-            c.setFillColor(DARK)
-            c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
-
-    c.save()
+    doc.build(story)
     return buf.getvalue()
+
+
+def _extraer_partidos_de_svg(svg_str: str) -> list[dict]:
+    """Extrae datos de partidos del SVG para armar tabla PDF."""
+    import re
+    filas = []
+    # Buscar datos en el SVG — usa los atributos data-* que generamos
+    bloques = re.findall(r'data-fase="([^"]*)"[^>]*data-j1="([^"]*)"[^>]*data-j2="([^"]*)"'
+                         r'[^>]*data-marc="([^"]*)"[^>]*data-gan="([^"]*)"', svg_str)
+    for fase, j1, j2, marc, gan in bloques:
+        filas.append({"fase": fase, "j1": j1, "j2": j2, "marcador": marc, "ganador": gan})
+    return filas
 
 
 def generar_pdf_simple(
