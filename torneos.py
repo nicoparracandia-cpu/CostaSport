@@ -38,6 +38,13 @@ def finalizar_torneo(sb, torneo_id: int):
     sb.table("torneos").update({"estado": "finalizado"}).eq("id", torneo_id).execute()
 
 
+def eliminar_torneo(sb, torneo_id: int):
+    """Elimina el torneo y todos sus datos (partidos y participantes)."""
+    sb.table("torneo_partidos").delete().eq("torneo_id", torneo_id).execute()
+    sb.table("torneo_participantes").delete().eq("torneo_id", torneo_id).execute()
+    sb.table("torneos").delete().eq("id", torneo_id).execute()
+
+
 def get_participantes(sb, torneo_id: int) -> list[dict]:
     resp = sb.table("torneo_participantes").select("*").eq("torneo_id", torneo_id).order("seed").execute()
     return resp.data

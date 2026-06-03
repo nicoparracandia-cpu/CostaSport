@@ -31,7 +31,7 @@ from resultados import (
     PUNTOS_GANADO, PUNTOS_PERDIDO, PUNTOS_WO_FAVOR,
 )
 from torneos import (
-    get_torneo_activo, get_todos_torneos, crear_torneo, finalizar_torneo,
+    get_torneo_activo, get_todos_torneos, crear_torneo, finalizar_torneo, eliminar_torneo,
     get_participantes, agregar_participante, eliminar_participante,
     actualizar_seed, get_partidos_torneo, get_partidos_fase,
     crear_partido, registrar_resultado_torneo, borrar_resultado_torneo,
@@ -1049,8 +1049,22 @@ with tab_torneos:
         if finalizados:
             st.divider()
             st.markdown("#### Torneos anteriores")
-            for t in finalizados:
-                st.markdown(f"- **{t['nombre']}** — {t['tipo']} · {t['formato']}")
+            for tf in finalizados:
+                col_th_f, col_del_f = st.columns([5, 1])
+                col_th_f.markdown(f"**{tf['nombre']}** — {tf['tipo']} · {tf['formato']}")
+                if st.session_state.es_admin:
+                    if col_del_f.button("🗑️", key=f"del_t_{tf['id']}", help="Eliminar torneo"):
+                        st.session_state["confirm_eliminar_torneo"] = tf["id"]
+                if st.session_state.get("confirm_eliminar_torneo") == tf["id"]:
+                    st.error(f"⚠️ ¿Eliminar **{tf['nombre']}**?")
+                    col_si2, col_no2 = st.columns(2)
+                    if col_si2.button("Sí", key=f"si_{tf['id']}", type="primary"):
+                        eliminar_torneo(sb, tf["id"])
+                        st.session_state.pop("confirm_eliminar_torneo", None)
+                        st.rerun()
+                    if col_no2.button("No", key=f"no_{tf['id']}"):
+                        st.session_state.pop("confirm_eliminar_torneo", None)
+                        st.rerun()
 
     else:
         # ── Torneo activo ──
@@ -1059,13 +1073,28 @@ with tab_torneos:
         tipo_t = t["tipo"]
         formato_t = t["formato"]
 
-        col_th, col_ta = st.columns([4, 1])
+        col_th, col_tf, col_td = st.columns([4, 1, 1])
         col_th.markdown(f"## {t['nombre']}")
         col_th.markdown(f"**{tipo_t.title()}** · {formato_t.replace('_', ' ').title()}")
         if st.session_state.es_admin:
-            if col_ta.button("🏁 Finalizar torneo", use_container_width=True):
+            if col_tf.button("🏁 Finalizar", use_container_width=True):
                 finalizar_torneo(sb, t["id"])
                 st.success("Torneo finalizado.")
+                st.rerun()
+            if col_td.button("🗑️ Eliminar", use_container_width=True):
+                st.session_state["confirm_eliminar_torneo"] = t["id"]
+
+        # Confirmación eliminación
+        if st.session_state.get("confirm_eliminar_torneo") == t["id"]:
+            st.error(f"⚠️ ¿Seguro que quieres eliminar **{t['nombre']}** y todos sus datos? Esta acción no se puede deshacer.")
+            col_si, col_no = st.columns(2)
+            if col_si.button("Sí, eliminar", type="primary", use_container_width=True):
+                eliminar_torneo(sb, t["id"])
+                st.session_state.pop("confirm_eliminar_torneo", None)
+                st.success("Torneo eliminado.")
+                st.rerun()
+            if col_no.button("Cancelar", use_container_width=True):
+                st.session_state.pop("confirm_eliminar_torneo", None)
                 st.rerun()
 
         participantes = get_participantes(sb, t["id"])
