@@ -45,6 +45,54 @@ def eliminar_torneo(sb, torneo_id: int):
     sb.table("torneos").delete().eq("id", torneo_id).execute()
 
 
+def calcular_puntos_torneo(partidos: list[dict], participantes: list[dict],
+                            config: dict, tipo: str = "singles") -> dict[str, int]:
+    """
+    Calcula cuántos puntos gana cada jugador en el torneo.
+    Retorna dict {nombre_jugador: puntos_ganados}.
+    """
+    pts_config = config.get("puntos_por_victoria", {})
+    puntos = {}
+
+    for partido in partidos:
+        if not partido.get("ganador_id"):
+            continue
+        gan = partido.get("ganador") or {}
+        nombre_gan = gan.get("jugador1_nombre", "")
+        if tipo == "dobles" and gan.get("jugador2_nombre"):
+            nombre_gan = gan["jugador1_nombre"]
+            nombre_gan2 = gan.get("jugador2_nombre", "")
+        fase = partido.get("fase", "ronda_1")
+        pts = int(pts_config.get(fase, pts_config.get("ronda_1", 0)))
+        if nombre_gan:
+            puntos[nombre_gan] = puntos.get(nombre_gan, 0) + pts
+        if tipo == "dobles" and gan.get("jugador2_nombre"):
+            puntos[nombre_gan2] = puntos.get(nombre_gan2, 0) + pts
+
+    return puntos
+
+
+def aplicar_puntos_al_ranking(sb, puntos: dict[str, int]) -> tuple[int, list[str]]:
+    """
+    Suma los puntos del torneo a puntos_base de cada jugador en la escalerilla.
+    Retorna (actualizados, no_encontrados).
+    """
+    actualizados = 0
+    no_encontrados = []
+
+    for nombre, pts in puntos.items():
+        resp = sb.table("jugadores").select("id, puntos_base, nombre").execute()
+        jug = next((j for j in resp.data if j["nombre"].lower() == nombre.lower()), None)
+        if jug:
+            nueva_base = (jug.get("puntos_base") or 0) + pts
+            sb.table("jugadores").update({"puntos_base": nueva_base}).eq("id", jug["id"]).execute()
+            actualizados += 1
+        else:
+            no_encontrados.append(nombre)
+
+    return actualizados, no_encontrados
+
+
 def get_participantes(sb, torneo_id: int) -> list[dict]:
     resp = sb.table("torneo_participantes").select("*").eq("torneo_id", torneo_id).order("seed").execute()
     return resp.data

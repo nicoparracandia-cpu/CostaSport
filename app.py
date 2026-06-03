@@ -30,8 +30,14 @@ from resultados import (
     validar_sets,
     PUNTOS_GANADO, PUNTOS_PERDIDO, PUNTOS_WO_FAVOR,
 )
+from bracket import (
+    hacer_sorteo, aplicar_sorteo_supabase,
+    generar_svg_eliminacion, generar_svg_round_robin, generar_svg_grupos,
+    generar_pdf_bracket,
+)
 from torneos import (
     get_torneo_activo, get_todos_torneos, crear_torneo, finalizar_torneo, eliminar_torneo,
+    calcular_puntos_torneo, aplicar_puntos_al_ranking,
     get_participantes, agregar_participante, eliminar_participante,
     actualizar_seed, get_partidos_torneo, get_partidos_fase,
     crear_partido, registrar_resultado_torneo, borrar_resultado_torneo,
@@ -1020,12 +1026,13 @@ with tab_torneos:
                         "grupos_eliminacion": "Grupos + Eliminación"
                     }[x])
 
-                    st.markdown("**Puntos para el ranking** (solo singles)")
+                    st.markdown("**Puntos por victoria** (solo singles — se suman al ranking de la escalerilla)")
+                    st.caption("Configura cuántos puntos suma cada victoria según la ronda.")
                     col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-                    pts_1 = col_p1.number_input("🥇 Campeón", min_value=0, value=500, step=50)
-                    pts_2 = col_p2.number_input("🥈 Final", min_value=0, value=300, step=50)
-                    pts_3 = col_p3.number_input("🥉 Semifinal", min_value=0, value=150, step=50)
-                    pts_4 = col_p4.number_input("Cuartos", min_value=0, value=75, step=25)
+                    pts_final     = col_p1.number_input("Final (ganador)", min_value=0, value=500, step=50, help="Puntos por ganar la final = campeón")
+                    pts_semifinal = col_p2.number_input("Semifinal", min_value=0, value=200, step=25, help="Puntos por ganar en semifinal")
+                    pts_cuartos   = col_p3.number_input("Cuartos", min_value=0, value=100, step=25, help="Puntos por ganar en cuartos")
+                    pts_ronda1    = col_p4.number_input("1ª ronda", min_value=0, value=50, step=25, help="Puntos por ganar en primera ronda")
 
                     n_grupos = 4
                     if t_formato == "grupos_eliminacion":
@@ -1036,7 +1043,16 @@ with tab_torneos:
                             st.error("Ingresa un nombre para el torneo.")
                         else:
                             config = {
-                                "puntos_ranking": {"1": pts_1, "2": pts_2, "3": pts_3, "4": pts_4},
+                                "puntos_por_victoria": {
+                                    "final": int(pts_final),
+                                    "semifinal": int(pts_semifinal),
+                                    "cuartos": int(pts_cuartos),
+                                    "octavos": int(pts_ronda1),
+                                    "dieciseisavos": int(pts_ronda1),
+                                    "ronda_1": int(pts_ronda1),
+                                    "ronda_2": int(pts_ronda1),
+                                    "grupos": int(pts_ronda1),
+                                },
                                 "n_grupos": int(n_grupos),
                             }
                             crear_torneo(sb, t_nombre.strip(), t_tipo, t_formato, config)
@@ -1078,8 +1094,39 @@ with tab_torneos:
         col_th.markdown(f"**{tipo_t.title()}** · {formato_t.replace('_', ' ').title()}")
         if st.session_state.es_admin:
             if col_tf.button("🏁 Finalizar", use_container_width=True):
-                finalizar_torneo(sb, t["id"])
-                st.success("Torneo finalizado.")
+                st.session_state["confirm_finalizar_torneo"] = t["id"]
+
+        if st.session_state.get("confirm_finalizar_torneo") == t["id"] and st.session_state.es_admin:
+            config_t = t.get("config") or {}
+            if tipo_t == "singles":
+                puntos_preview = calcular_puntos_torneo(partidos, participantes, config_t, tipo_t)
+                if puntos_preview:
+                    st.info("Se sumarán estos puntos al ranking de la escalerilla:")
+                    col_prev = st.columns(min(len(puntos_preview), 4))
+                    for i, (nombre, pts) in enumerate(sorted(puntos_preview.items(), key=lambda x: -x[1])):
+                        col_prev[i % 4].metric(nombre, f"+{pts} pts")
+                else:
+                    st.info("No hay resultados completados — no se sumarán puntos.")
+            else:
+                puntos_preview = {}
+                st.info("ℹ️ Torneo de dobles — no aplica puntos al ranking de la escalerilla.")
+            col_sf1, col_sf2 = st.columns(2)
+            if col_sf1.button("✅ Confirmar y finalizar", type="primary", use_container_width=True, key="btn_conf_fin"):
+                if tipo_t == "singles" and puntos_preview:
+                    act, no_enc = aplicar_puntos_al_ranking(sb, puntos_preview)
+                    st.session_state.jugadores_supabase = get_jugadores()
+                    if no_enc:
+                        st.warning(f"No encontrados en escalerilla: {', '.join(no_enc)}")
+                    finalizar_torneo(sb, t["id"])
+                    st.session_state.pop("confirm_finalizar_torneo", None)
+                    st.success("✅ Torneo finalizado. Puntos aplicados al ranking de la escalerilla.")
+                else:
+                    finalizar_torneo(sb, t["id"])
+                    st.session_state.pop("confirm_finalizar_torneo", None)
+                    st.success("✅ Torneo de dobles finalizado. Sin impacto en el ranking de la escalerilla.")
+                st.rerun()
+            if col_sf2.button("Cancelar", use_container_width=True, key="btn_canc_fin"):
+                st.session_state.pop("confirm_finalizar_torneo", None)
                 st.rerun()
             if col_td.button("🗑️ Eliminar", use_container_width=True):
                 st.session_state["confirm_eliminar_torneo"] = t["id"]
@@ -1102,7 +1149,7 @@ with tab_torneos:
         completados_t = [p for p in partidos if p.get("ganador_id")]
         pendientes_t = [p for p in partidos if not p.get("ganador_id")]
 
-        st_t1, st_t2, st_t3 = st.tabs(["👥 Participantes", "🎯 Partidos", "🏆 Resultados"])
+        st_t1, st_t2, st_t3, st_t4 = st.tabs(["👥 Participantes / Sorteo", "🎯 Partidos", "🏆 Bracket", "📊 Resultados"])
 
         # ── Participantes ──
         with st_t1:
@@ -1124,7 +1171,98 @@ with tab_torneos:
 
             if st.session_state.es_admin:
                 st.divider()
-                st.markdown("#### Agregar participante")
+                st.markdown("#### Cabezas de serie")
+                st.caption("Asigna seed a los favoritos antes del sorteo. Seeds 1-4 se ubican en posiciones fijas del bracket.")
+                if participantes:
+                    for p in sorted(participantes, key=lambda x: x.get("seed") or 999):
+                        col_nom, col_seed, col_btn = st.columns([4, 2, 1])
+                        col_nom.markdown(nombre_participante(p, tipo_t))
+                        nuevo_seed = col_seed.number_input(
+                            "Seed", min_value=0, max_value=32,
+                            value=int(p.get("seed") or 0),
+                            key=f"seed_{p['id']}",
+                            label_visibility="collapsed"
+                        )
+                        if col_btn.button("💾", key=f"saveseed_{p['id']}", help="Guardar seed"):
+                            actualizar_seed(sb, p["id"], int(nuevo_seed))
+                            st.rerun()
+
+                st.divider()
+                col_sorteo, col_info_s = st.columns([1, 2])
+                with col_sorteo:
+                    if st.button("🎲 Hacer sorteo", type="primary", use_container_width=True,
+                                 disabled=bool(partidos),
+                                 help="Genera el orden del bracket respetando seeds"):
+                        aplicar_sorteo_supabase(sb, t["id"], participantes)
+                        st.success("✅ Sorteo realizado. Ahora genera los partidos.")
+                        st.rerun()
+                with col_info_s:
+                    st.caption("El sorteo ubica seed 1 vs seed 8, seed 2 vs seed 7, etc. Los no-seeds se distribuyen aleatoriamente.")
+                    if partidos:
+                        st.warning("Ya hay partidos generados — el sorteo está bloqueado.")
+
+                st.divider()
+                st.markdown("#### Importar participantes desde Excel")
+                if tipo_t == "singles":
+                    st.caption("Columnas requeridas: **Jugador**, **Seed** (opcional, 0 si no tiene seed).")
+                else:
+                    st.caption("Columnas requeridas: **Jugador1**, **Jugador2**, **Seed** (opcional). Una fila = una pareja.")
+
+                archivo_part = st.file_uploader(
+                    "Subir Excel de participantes",
+                    type=["xlsx", "xls"],
+                    key="upload_participantes",
+                )
+                if archivo_part:
+                    try:
+                        df_part = pd.read_excel(archivo_part, sheet_name=0)
+                        col_req = "Jugador" if tipo_t == "singles" else "Jugador1"
+                        if col_req not in df_part.columns:
+                            st.error(f"Columna requerida: '{col_req}'")
+                        else:
+                            cols_show = [col_req]
+                            if tipo_t == "dobles" and "Jugador2" in df_part.columns:
+                                cols_show.append("Jugador2")
+                            if "Seed" in df_part.columns:
+                                cols_show.append("Seed")
+                            st.dataframe(df_part[cols_show].head(10), hide_index=True, use_container_width=True)
+                            st.caption(f"{len(df_part)} {'parejas' if tipo_t == 'dobles' else 'jugadores'} en el archivo")
+                            if st.button("⬆️ Importar todos", type="primary", use_container_width=True, key="btn_import_part"):
+                                importados = 0
+                                errores_imp = []
+                                for _, row in df_part.iterrows():
+                                    if tipo_t == "singles":
+                                        nombre = str(row.get("Jugador", "")).strip()
+                                        if not nombre or nombre == "nan":
+                                            continue
+                                        nombre2 = None
+                                    else:
+                                        nombre = str(row.get("Jugador1", "")).strip()
+                                        nombre2 = str(row.get("Jugador2", "")).strip()
+                                        if not nombre or nombre == "nan":
+                                            continue
+                                        if not nombre2 or nombre2 == "nan":
+                                            nombre2 = None
+                                    seed_val = 0
+                                    if "Seed" in df_part.columns and str(row.get("Seed","")) not in ("nan",""):
+                                        try:
+                                            seed_val = int(row["Seed"])
+                                        except:
+                                            seed_val = 0
+                                    try:
+                                        agregar_participante(sb, t["id"], nombre, nombre2, seed_val)
+                                        importados += 1
+                                    except Exception as e:
+                                        errores_imp.append(nombre)
+                                st.success(f"✅ {importados} {'parejas' if tipo_t == 'dobles' else 'participantes'} importados.")
+                                if errores_imp:
+                                    st.warning(f"No se pudieron importar: {', '.join(errores_imp)}")
+                                st.rerun()
+                    except Exception as e:
+                        st.error(f"Error leyendo Excel: {e}")
+
+                st.divider()
+                st.markdown("#### Agregar participante manualmente")
                 nombres_disp = sorted([j["nombre"] for j in jugadores_db])
 
                 with st.form("form_add_participante"):
@@ -1252,8 +1390,61 @@ with tab_torneos:
                                 st.session_state.pop("partido_torneo_sel", None)
                                 st.rerun()
 
-        # ── Resultados / Tabla ──
+        # ── Bracket visual ──
         with st_t3:
+            st.subheader("🏆 Cuadro del torneo")
+
+            if not partidos:
+                st.info("Genera los partidos primero en la pestaña Participantes.")
+            else:
+                # Generar SVG según formato
+                if formato_t == "eliminacion":
+                    svg_bracket = generar_svg_eliminacion(partidos, participantes, tipo_t, t["nombre"])
+                    svgs_list = [svg_bracket]
+                elif formato_t == "round_robin":
+                    svg_bracket = generar_svg_round_robin(partidos, participantes, tipo_t, t["nombre"])
+                    svgs_list = [svg_bracket]
+                else:
+                    svgs_list = generar_svg_grupos(partidos, participantes, tipo_t, t["nombre"])
+                    svg_bracket = svgs_list[0] if svgs_list else ""
+
+                # Mostrar SVG
+                for svg in svgs_list:
+                    st.components.v1.html(svg, height=500, scrolling=True)
+
+                st.divider()
+
+                # Exportar PDF
+                col_pdf1, col_pdf2 = st.columns([2, 3])
+                with col_pdf1:
+                    subtitulo_pdf = f"{tipo_t.title()} · {formato_t.replace('_', ' ').title()} · {datetime.now().strftime('%d/%m/%Y')}"
+                    if st.button("📄 Generar PDF brandeado", type="primary", use_container_width=True):
+                        with st.spinner("Generando PDF..."):
+                            try:
+                                pdf_bytes = generar_pdf_bracket(
+                                    svgs_list,
+                                    t["nombre"],
+                                    subtitulo_pdf,
+                                    logo_path="assets/logo.png",
+                                )
+                                st.session_state["pdf_bracket"] = pdf_bytes
+                                st.success("✅ PDF listo para descargar.")
+                            except Exception as e:
+                                st.error(f"Error generando PDF: {e}")
+
+                if st.session_state.get("pdf_bracket"):
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+                    st.download_button(
+                        label="⬇️ Descargar PDF",
+                        data=st.session_state["pdf_bracket"],
+                        file_name=f"costa_sport_{t['nombre'].replace(' ','_')}_{timestamp}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+                    st.caption("Comparte el PDF por WhatsApp para que todos vean el cuadro actualizado.")
+
+        # ── Resultados / Tabla ──
+        with st_t4:
             if not completados_t:
                 st.info("Aún no hay resultados registrados.")
             else:
