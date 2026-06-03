@@ -1440,6 +1440,7 @@ with tab_torneos:
                                     subtitulo=subtitulo_pdf,
                                     tipo=tipo_t,
                                     logo_path="assets/logo.png",
+                                    participantes=participantes,
                                 )
                                 st.session_state["pdf_bracket"] = pdf_bytes
                                 st.success("✅ PDF listo para descargar.")

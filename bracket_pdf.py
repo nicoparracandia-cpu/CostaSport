@@ -1,82 +1,65 @@
 """
 bracket_pdf.py — Costa Sport
 ----------------------------
-Generador de PDF con bracket visual estilo ATP/torneo.
-Usa reportlab canvas con coordenadas para dibujar cajas y líneas conectoras.
+Genera PDF con bracket visual estilo ATP usando reportlab canvas.
+Calcula TODAS las rondas desde el número de participantes.
 """
 from __future__ import annotations
-import io
-import math
+import io, math
 from datetime import datetime
 from pathlib import Path
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas as rl_canvas
-from reportlab.lib.colors import HexColor, white, black
+from reportlab.lib.colors import HexColor
 from reportlab.lib.utils import ImageReader
 
-# ── Paleta Costa Sport ──
-C_DARK    = HexColor("#0E1117")
-C_CARD    = HexColor("#1A1F2E")
-C_WIN     = HexColor("#1A2744")
-C_BLUE    = HexColor("#33B9F3")
-C_MUTED   = HexColor("#8B9CC8")
-C_LINE    = HexColor("#2A2F3E")
-C_YELLOW  = HexColor("#FFD700")  # seeds
+C_DARK   = HexColor("#0E1117")
+C_CARD   = HexColor("#1A1F2E")
+C_WIN    = HexColor("#1A2744")
+C_BLUE   = HexColor("#33B9F3")
+C_MUTED  = HexColor("#8B9CC8")
+C_LINE   = HexColor("#2A2F3E")
+C_YELLOW = HexColor("#FFD700")
+C_WHITE  = HexColor("#FFFFFF")
+C_GRAY   = HexColor("#131720")
 
-# ── Dimensiones de caja ──
-BOX_W  = 120   # ancho caja jugador
-BOX_H  = 16    # alto caja jugador
-GAP    = 4     # gap entre j1 y j2 en un match
-FONT_S = 7     # font size nombres
-FONT_T = 8     # font size títulos ronda
+NOMBRES_FASE = {
+    1:"final", 2:"semifinal", 4:"cuartos",
+    8:"octavos", 16:"dieciseisavos",
+    32:"treintaidosavos", 64:"sesentaicuatroavos"
+}
 
-MARGIN_TOP    = 50   # margen superior para header
-MARGIN_LEFT   = 30
-MARGIN_RIGHT  = 30
-COL_GAP       = 40   # espacio horizontal entre columnas de rondas
+def _cortar(nombre, max_c=14):
+    if not nombre: return "—"
+    p = nombre.strip().split()
+    s = f"{p[0][0]}. {' '.join(p[1:])}" if len(p)>=2 else nombre
+    return s[:max_c]
 
+def _marc(sets):
+    if not sets: return ""
+    return " ".join(f"{s['games_1']}-{s['games_2']}" for s in sets)
 
-def _cortar(nombre: str, max_c: int = 16) -> str:
-    if not nombre:
-        return "—"
-    partes = nombre.strip().split()
-    if len(partes) >= 2:
-        s = f"{partes[0][0]}. {' '.join(partes[1:])}"
-        return s[:max_c]
-    return nombre[:max_c]
-
-
-def _marcador(sets: list[dict]) -> str:
-    if not sets:
-        return ""
-    return "  ".join(f"{s['games_1']}-{s['games_2']}" for s in sets)
-
-
-def _dibujar_caja(c, x, y, nombre, seed, ganador, marcador, w=BOX_W):
-    """Dibuja una caja de jugador."""
+def _caja(c, x, y, w, h, nombre, seed, ganador, marc=""):
     bg = C_WIN if ganador else C_CARD
     c.setFillColor(bg)
     c.setStrokeColor(C_LINE)
-    c.setLineWidth(0.4)
-    c.roundRect(x, y, w, BOX_H, 2, fill=1, stroke=1)
-
+    c.setLineWidth(0.3)
+    c.roundRect(x, y, w, h, 2, fill=1, stroke=1)
+    ty = y + h/2 - 3
     if seed and seed <= 8:
         c.setFillColor(C_YELLOW)
-        c.setFont("Helvetica-Bold", FONT_S - 1)
-        c.drawString(x + 3, y + BOX_H/2 - 3, str(seed))
-        nombre_x = x + 14
+        c.setFont("Helvetica-Bold", 6)
+        c.drawString(x+2, ty, f"[{seed}]")
+        nx = x + 14
     else:
-        nombre_x = x + 4
-
-    c.setFillColor(C_BLUE if ganador else white)
-    c.setFont("Helvetica-Bold" if ganador else "Helvetica", FONT_S)
-    c.drawString(nombre_x, y + BOX_H/2 - 3, _cortar(nombre))
-
-    if marcador:
-        c.setFillColor(C_BLUE if ganador else C_MUTED)
-        c.setFont("Helvetica", FONT_S - 1)
-        c.drawRightString(x + w - 3, y + BOX_H/2 - 3, marcador)
-
+        nx = x + 3
+    c.setFillColor(C_BLUE if ganador else C_WHITE)
+    c.setFont("Helvetica-Bold" if ganador else "Helvetica", 7)
+    c.drawString(nx, ty, _cortar(nombre))
+    if marc and ganador:
+        c.setFillColor(C_BLUE)
+        c.setFont("Helvetica", 6)
+        c.drawRightString(x + w - 2, ty, marc)
 
 def generar_pdf_bracket_visual(
     partidos: list[dict],
@@ -84,55 +67,56 @@ def generar_pdf_bracket_visual(
     subtitulo: str,
     tipo: str = "singles",
     logo_path: str = "assets/logo.png",
+    participantes: list[dict] | None = None,
 ) -> bytes:
-    """
-    Genera PDF con bracket visual tipo ATP.
-    Los partidos se organizan por ronda y se dibujan con líneas conectoras.
-    """
+
     page_w, page_h = landscape(A4)
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
 
-    # Ordenar fases
-    orden = ["sesentaicuatroavos","treintaidosavos","dieciseisavos",
-             "octavos","cuartos","semifinal","final"]
+    # Calcular bracket desde participantes o desde partidos
+    if participantes:
+        n = len(participantes)
+    else:
+        nombres_vistos = set()
+        for p in partidos:
+            for key in ["participante1","participante2"]:
+                jug = p.get(key) or {}
+                n = jug.get("jugador1_nombre","")
+                if n: nombres_vistos.add(n)
+        n = len(nombres_vistos) if nombres_vistos else 16
 
-    fases_raw = list(dict.fromkeys(p["fase"] for p in partidos))
-    rondas_num = sorted(
-        [f for f in fases_raw if f.startswith("ronda_")],
-        key=lambda x: int(x.split("_")[1]) if x.split("_")[1].isdigit() else 0,
-        reverse=True
-    )
-    fases = rondas_num + [f for f in orden if f in fases_raw]
-    if not fases:
-        fases = fases_raw
+    size = 2 ** math.ceil(math.log2(max(n,2)))
+    n_rondas = int(math.log2(size))
 
-    n_rondas = len(fases)
+    # Indexar partidos por fase
+    pxf = {}
+    for p in partidos:
+        f = p.get("fase","")
+        pxf.setdefault(f, [])
+        pxf[f].append(p)
+    for f in pxf:
+        pxf[f].sort(key=lambda x: x.get("orden") or 0)
 
-    # Calcular matches por ronda
-    matches_por_ronda = {}
-    for fase in fases:
-        matches_por_ronda[fase] = sorted(
-            [p for p in partidos if p["fase"] == fase],
-            key=lambda x: x.get("orden") or 0
-        )
+    # Dimensiones
+    HEADER_H = 45
+    FOOTER_H = 15
+    area_w = page_w - 20
+    area_h = page_h - HEADER_H - FOOTER_H - 10
 
-    n_primera = len(matches_por_ronda[fases[0]])
+    BOX_W = min(110, (area_w - (n_rondas-1)*8) / n_rondas - 2)
+    BOX_H = 13
+    GAP   = 4
+    COL_W = BOX_W + 8
 
-    # Área disponible para el bracket
-    area_w = page_w - MARGIN_LEFT - MARGIN_RIGHT
-    area_h = page_h - MARGIN_TOP - 40
-    col_w  = (area_w - (n_rondas - 1) * COL_GAP) / n_rondas
-    match_h = BOX_H * 2 + GAP  # alto de un match (j1 + gap + j2)
+    n_matches_r1 = size // 2
+    slot_h = area_h / n_matches_r1
 
-    def get_match_y(ronda_idx: int, match_idx: int, total_matches: int) -> float:
-        """Calcula la Y del centro del match en esa ronda."""
-        slot_h = area_h / total_matches
-        # En rondas posteriores los matches se espacian más
-        factor = 2 ** ronda_idx
-        espaciado = area_h / (n_primera / factor)
-        offset = espaciado / 2
-        return MARGIN_TOP + offset + match_idx * espaciado
+    def get_ys(r_idx):
+        """Y centro de cada match en la ronda r_idx."""
+        n_m = max(1, n_matches_r1 // (2**r_idx))
+        sp = area_h / n_m
+        return [FOOTER_H + 5 + sp*(i+0.5) for i in range(n_m)]
 
     # ── Fondo ──
     c.setFillColor(C_DARK)
@@ -140,137 +124,97 @@ def generar_pdf_bracket_visual(
 
     # ── Header ──
     c.setFillColor(C_CARD)
-    c.rect(0, page_h - MARGIN_TOP, page_w, MARGIN_TOP, fill=1, stroke=0)
+    c.rect(0, page_h - HEADER_H, page_w, HEADER_H, fill=1, stroke=0)
     c.setStrokeColor(C_BLUE)
-    c.setLineWidth(1.5)
-    c.line(0, page_h - MARGIN_TOP, page_w, page_h - MARGIN_TOP)
+    c.setLineWidth(1)
+    c.line(0, page_h - HEADER_H, page_w, page_h - HEADER_H)
 
-    # Logo
     logo = Path(logo_path)
-    if not logo.exists():
-        logo = Path("assets/logo.png")
+    if not logo.exists(): logo = Path("assets/logo.png")
     if logo.exists():
         try:
-            img = ImageReader(str(logo))
-            c.drawImage(img, MARGIN_LEFT, page_h - MARGIN_TOP + 5,
+            c.drawImage(ImageReader(str(logo)), 8, page_h-HEADER_H+4,
                        width=32, height=32, mask="auto", preserveAspectRatio=True)
-        except:
-            pass
+        except: pass
 
     c.setFillColor(C_BLUE)
-    c.setFont("Helvetica-Bold", 14)
-    c.drawCentredString(page_w/2, page_h - 22, titulo)
+    c.setFont("Helvetica-Bold", 13)
+    c.drawCentredString(page_w/2, page_h-18, titulo)
     c.setFillColor(C_MUTED)
     c.setFont("Helvetica", 8)
-    c.drawCentredString(page_w/2, page_h - 36, subtitulo)
+    c.drawCentredString(page_w/2, page_h-30, subtitulo)
     c.setFont("Helvetica", 7)
-    c.drawRightString(page_w - MARGIN_RIGHT, page_h - 22, "Costa Sport · Tennis Club")
-    c.drawRightString(page_w - MARGIN_RIGHT, page_h - 34, datetime.now().strftime("%d/%m/%Y"))
+    c.drawRightString(page_w-8, page_h-18, "Costa Sport · Tennis Club")
+    c.drawRightString(page_w-8, page_h-28, datetime.now().strftime("%d/%m/%Y"))
 
-    # ── Etiquetas de ronda ──
-    for r_idx, fase in enumerate(fases):
-        x_col = MARGIN_LEFT + r_idx * (col_w + COL_GAP)
-        label = fase.replace("_", " ").upper()
-        if fase == "final": label = "FINAL"
-        elif fase == "semifinal": label = "SEMIFINAL"
-        elif fase == "cuartos": label = "CUARTOS"
-        elif fase == "octavos": label = "OCTAVOS"
+    # ── Bracket ──
+    for r_idx in range(n_rondas):
+        n_matches = max(1, size // (2**(r_idx+1)))
+        fase_nombre = NOMBRES_FASE.get(n_matches, f"ronda_{size//(2**r_idx)}")
+        pts_fase = pxf.get(fase_nombre, [])
+
+        x = 10 + r_idx * COL_W
+        positions = get_ys(r_idx)
+
+        # Etiqueta ronda
+        label = "FINAL" if r_idx==n_rondas-1 else fase_nombre.replace("_"," ").upper()[:12]
         c.setFillColor(C_BLUE)
-        c.setFont("Helvetica-Bold", FONT_T)
-        c.drawCentredString(x_col + col_w/2, page_h - MARGIN_TOP - 10, label)
+        c.setFont("Helvetica-Bold", 6)
+        c.drawCentredString(x + BOX_W/2, page_h - HEADER_H - 8, label)
 
-    # ── Dibujar matches y líneas conectoras ──
-    coords_por_ronda = {}  # {fase: [(x_right, y_mid), ...]} para conectar
+        for m_idx, yc in enumerate(positions):
+            y1 = yc + GAP/2
+            y2 = yc - BOX_H - GAP/2
+            match = pts_fase[m_idx] if m_idx < len(pts_fase) else None
 
-    for r_idx, fase in enumerate(fases):
-        matches = matches_por_ronda[fase]
-        x_col = MARGIN_LEFT + r_idx * (col_w + COL_GAP)
-        coords_por_ronda[fase] = []
-
-        for m_idx, match in enumerate(matches):
-            n_total = len(matches)
-            y_center = get_match_y(r_idx, m_idx, n_total)
-            y1 = y_center + GAP/2              # Y jugador 1 (arriba)
-            y2 = y_center - BOX_H - GAP/2     # Y jugador 2 (abajo)
-
-            p1 = match.get("participante1") or {}
-            p2 = match.get("participante2") or {}
-            gan = match.get("ganador") or {}
-            gan_id = match.get("ganador_id")
-            sets = (match.get("resultado") or {}).get("sets", [])
-
-            if tipo == "dobles":
-                n1 = f"{p1.get('jugador1_nombre','')} / {p1.get('jugador2_nombre','')}"
-                n2 = f"{p2.get('jugador1_nombre','')} / {p2.get('jugador2_nombre','')}"
+            if match:
+                p1 = match.get("participante1") or {}
+                p2 = match.get("participante2") or {}
+                gan_id = match.get("ganador_id")
+                sets = (match.get("resultado") or {}).get("sets",[])
+                if tipo=="dobles":
+                    n1 = f"{p1.get('jugador1_nombre','')} / {p1.get('jugador2_nombre','')}"
+                    n2 = f"{p2.get('jugador1_nombre','')} / {p2.get('jugador2_nombre','')}"
+                else:
+                    n1 = p1.get("jugador1_nombre","Por definir")
+                    n2 = p2.get("jugador1_nombre","Por definir")
+                s1 = p1.get("seed") or 0
+                s2 = p2.get("seed") or 0
+                g1 = bool(gan_id and gan_id==p1.get("id"))
+                g2 = bool(gan_id and gan_id==p2.get("id"))
+                marc = _marc(sets)
             else:
-                n1 = p1.get("jugador1_nombre", "Por definir")
-                n2 = p2.get("jugador1_nombre", "Por definir")
+                n1=n2="Por definir"; s1=s2=0; g1=g2=False; marc=""
 
-            marc = _marcador(sets)
-            es_gan1 = gan_id and gan_id == p1.get("id")
-            es_gan2 = gan_id and gan_id == p2.get("id")
-            seed1 = p1.get("seed") or 0
-            seed2 = p2.get("seed") or 0
+            _caja(c, x, y1, BOX_W, BOX_H, n1, s1, g1, marc if g1 else "")
+            _caja(c, x, y2, BOX_W, BOX_H, n2, s2, g2, marc if g2 else "")
 
-            # Cajas
-            _dibujar_caja(c, x_col, y1, n1, seed1, es_gan1,
-                         marc if es_gan1 else "", w=col_w - 5)
-            _dibujar_caja(c, x_col, y2, n2, seed2, es_gan2,
-                         marc if es_gan2 else "", w=col_w - 5)
+            # Conector hacia siguiente ronda
+            if r_idx < n_rondas - 1:
+                xr = x + BOX_W
+                xm = xr + 4
+                ym1 = y1 + BOX_H/2
+                ym2 = y2 + BOX_H/2
+                ymc = (ym1 + ym2) / 2
 
-            # Guardar coords para conectar con siguiente ronda
-            x_right = x_col + col_w - 5
-            y_mid = (y1 + BOX_H/2 + y2 + BOX_H/2) / 2
-            coords_por_ronda[fase].append((x_right, y1 + BOX_H/2, y2 + BOX_H/2))
+                c.setStrokeColor(C_LINE)
+                c.setLineWidth(0.4)
+                c.line(xr, ym1, xm, ym1)
+                c.line(xr, ym2, xm, ym2)
+                c.line(xm, ym2, xm, ym1)
+                c.line(xm, ymc, xm+4, ymc)
 
-        # ── Líneas conectoras hacia siguiente ronda ──
-        if r_idx < n_rondas - 1:
-            fase_sig = fases[r_idx + 1]
-            matches_sig = matches_por_ronda[fase_sig]
-            x_col_sig = MARGIN_LEFT + (r_idx + 1) * (col_w + COL_GAP)
-
-            c.setStrokeColor(C_LINE)
-            c.setLineWidth(0.5)
-
-            for i in range(0, len(matches), 2):
-                if i + 1 >= len(matches):
-                    break
-                # Par de matches que se conectan al siguiente
-                _, ya1, ya2 = coords_por_ronda[fase][i]
-                _, yb1, yb2 = coords_por_ronda[fase][i + 1]
-                x_right = MARGIN_LEFT + r_idx * (col_w + COL_GAP) + col_w - 5
-                x_next  = x_col_sig
-
-                ya_mid = (ya1 + ya2) / 2
-                yb_mid = (yb1 + yb2) / 2
-                y_join = (ya_mid + yb_mid) / 2
-
-                x_mid = x_right + COL_GAP / 2
-
-                # Línea horizontal desde match A
-                c.line(x_right, ya_mid, x_mid, ya_mid)
-                # Línea horizontal desde match B
-                c.line(x_right, yb_mid, x_mid, yb_mid)
-                # Línea vertical uniendo ambas
-                c.line(x_mid, ya_mid, x_mid, yb_mid)
-                # Línea horizontal hacia siguiente ronda
-                c.line(x_mid, y_join, x_next, y_join)
-
-    # ── Trofeo en la final ──
-    x_final = MARGIN_LEFT + (n_rondas - 1) * (col_w + COL_GAP) + col_w
+    # Trofeo final
+    x_fin = 10 + (n_rondas-1)*COL_W + BOX_W + 6
+    y_fin = FOOTER_H + 5 + area_h/2
+    c.setFont("Helvetica-Bold", 14)
     c.setFillColor(C_YELLOW)
-    c.setFont("Helvetica-Bold", 16)
-    fase_final = fases[-1]
-    matches_final = matches_por_ronda[fase_final]
-    if matches_final:
-        n_total = len(matches_final)
-        y_trofeo = get_match_y(n_rondas - 1, 0, n_total)
-        c.drawCentredString(x_final + 15, y_trofeo, "🏆")
+    c.drawString(x_fin, y_fin-5, "🏆")
 
-    # ── Footer ──
+    # Footer
     c.setFillColor(C_MUTED)
     c.setFont("Helvetica", 6)
-    c.drawCentredString(page_w/2, 8, f"Costa Sport · Tennis Club · {datetime.now().year}")
+    c.drawCentredString(page_w/2, 6, f"Costa Sport · Tennis Club · {datetime.now().year}")
 
     c.save()
     return buf.getvalue()
