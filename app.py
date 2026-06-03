@@ -30,6 +30,14 @@ from resultados import (
     validar_sets,
     PUNTOS_GANADO, PUNTOS_PERDIDO, PUNTOS_WO_FAVOR,
 )
+from torneos import (
+    get_torneo_activo, get_todos_torneos, crear_torneo, finalizar_torneo,
+    get_participantes, agregar_participante, eliminar_participante,
+    actualizar_seed, get_partidos_torneo, get_partidos_fase,
+    crear_partido, registrar_resultado_torneo, borrar_resultado_torneo,
+    generar_bracket_eliminacion, generar_round_robin, generar_grupos,
+    calcular_tabla_grupo, nombre_participante, calcular_puntos_ranking,
+)
 from db import (
     cargar_historial,
     guardar_historial,
@@ -353,11 +361,12 @@ categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
 # ============================================================================
 #  Pestañas
 # ============================================================================
-tab_ronda, tab_resultados, tab_ranking, tab_perfiles, tab_jugadores = st.tabs([
+tab_ronda, tab_resultados, tab_ranking, tab_perfiles, tab_torneos, tab_jugadores = st.tabs([
     "🎯 Generar Ronda",
     "📝 Cargar Resultados",
     "🏆 Ranking",
     "👤 Perfiles",
+    "🏅 Torneos",
     "⚙️ Jugadores",
 ])
 
@@ -987,7 +996,265 @@ with tab_perfiles:
                     st.dataframe(pd.DataFrame(filas), hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------------------------------
-#  TAB 5: Gestión de Jugadores
+#  TAB 5: Torneos
+# ----------------------------------------------------------------------------
+with tab_torneos:
+    st.subheader("🏅 Torneos")
+    sb = get_supabase()
+    torneo_activo = get_torneo_activo(sb)
+
+    # ── Sin torneo activo: crear uno ──
+    if not torneo_activo:
+        st.info("No hay torneo activo. Crea uno nuevo.")
+        if st.session_state.es_admin:
+            with st.expander("➕ Crear nuevo torneo", expanded=True):
+                with st.form("form_crear_torneo"):
+                    t_nombre = st.text_input("Nombre del torneo", placeholder="Ej: Copa Costa Sport 2026")
+                    col_t1, col_t2 = st.columns(2)
+                    t_tipo = col_t1.selectbox("Tipo", ["singles", "dobles"])
+                    t_formato = col_t2.selectbox("Formato", [
+                        "eliminacion", "round_robin", "grupos_eliminacion"
+                    ], format_func=lambda x: {
+                        "eliminacion": "Eliminación directa",
+                        "round_robin": "Round Robin",
+                        "grupos_eliminacion": "Grupos + Eliminación"
+                    }[x])
+
+                    st.markdown("**Puntos para el ranking** (solo singles)")
+                    col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+                    pts_1 = col_p1.number_input("🥇 Campeón", min_value=0, value=500, step=50)
+                    pts_2 = col_p2.number_input("🥈 Final", min_value=0, value=300, step=50)
+                    pts_3 = col_p3.number_input("🥉 Semifinal", min_value=0, value=150, step=50)
+                    pts_4 = col_p4.number_input("Cuartos", min_value=0, value=75, step=25)
+
+                    n_grupos = 4
+                    if t_formato == "grupos_eliminacion":
+                        n_grupos = st.number_input("Número de grupos", min_value=2, max_value=8, value=4)
+
+                    if st.form_submit_button("🏅 Crear torneo", type="primary", use_container_width=True):
+                        if not t_nombre.strip():
+                            st.error("Ingresa un nombre para el torneo.")
+                        else:
+                            config = {
+                                "puntos_ranking": {"1": pts_1, "2": pts_2, "3": pts_3, "4": pts_4},
+                                "n_grupos": int(n_grupos),
+                            }
+                            crear_torneo(sb, t_nombre.strip(), t_tipo, t_formato, config)
+                            st.success(f"✅ Torneo '{t_nombre}' creado.")
+                            st.rerun()
+
+        # Historial de torneos finalizados
+        todos_t = get_todos_torneos(sb)
+        finalizados = [t for t in todos_t if t["estado"] == "finalizado"]
+        if finalizados:
+            st.divider()
+            st.markdown("#### Torneos anteriores")
+            for t in finalizados:
+                st.markdown(f"- **{t['nombre']}** — {t['tipo']} · {t['formato']}")
+
+    else:
+        # ── Torneo activo ──
+        t = torneo_activo
+        config = t.get("config") or {}
+        tipo_t = t["tipo"]
+        formato_t = t["formato"]
+
+        col_th, col_ta = st.columns([4, 1])
+        col_th.markdown(f"## {t['nombre']}")
+        col_th.markdown(f"**{tipo_t.title()}** · {formato_t.replace('_', ' ').title()}")
+        if st.session_state.es_admin:
+            if col_ta.button("🏁 Finalizar torneo", use_container_width=True):
+                finalizar_torneo(sb, t["id"])
+                st.success("Torneo finalizado.")
+                st.rerun()
+
+        participantes = get_participantes(sb, t["id"])
+        partidos = get_partidos_torneo(sb, t["id"])
+        completados_t = [p for p in partidos if p.get("ganador_id")]
+        pendientes_t = [p for p in partidos if not p.get("ganador_id")]
+
+        st_t1, st_t2, st_t3 = st.tabs(["👥 Participantes", "🎯 Partidos", "🏆 Resultados"])
+
+        # ── Participantes ──
+        with st_t1:
+            c1t, c2t, c3t = st.columns(3)
+            c1t.metric("Participantes", len(participantes))
+            c2t.metric("Partidos jugados", len(completados_t))
+            c3t.metric("Pendientes", len(pendientes_t))
+
+            st.divider()
+            if participantes:
+                filas_p = []
+                for p in participantes:
+                    filas_p.append({
+                        "Seed": p.get("seed") or "—",
+                        "Participante": nombre_participante(p, tipo_t),
+                        "Grupo": p.get("grupo") or "—",
+                    })
+                st.dataframe(pd.DataFrame(filas_p), hide_index=True, use_container_width=True)
+
+            if st.session_state.es_admin:
+                st.divider()
+                st.markdown("#### Agregar participante")
+                nombres_disp = sorted([j["nombre"] for j in jugadores_db])
+
+                with st.form("form_add_participante"):
+                    col_a1, col_a2, col_a3 = st.columns([3, 3, 1])
+                    j1_sel = col_a1.selectbox(
+                        "Jugador 1" if tipo_t == "singles" else "Pareja — Jugador 1",
+                        options=["— Externo —"] + nombres_disp,
+                        key="add_j1"
+                    )
+                    j1_ext = col_a1.text_input("Nombre externo J1", key="add_j1_ext",
+                        placeholder="Si no está en la lista") if j1_sel == "— Externo —" else None
+
+                    if tipo_t == "dobles":
+                        j2_sel = col_a2.selectbox("Jugador 2", options=["— Externo —"] + nombres_disp, key="add_j2")
+                        j2_ext = col_a2.text_input("Nombre externo J2", key="add_j2_ext",
+                            placeholder="Si no está en la lista") if j2_sel == "— Externo —" else None
+                    else:
+                        j2_sel = None
+                        j2_ext = None
+
+                    seed_val = col_a3.number_input("Seed", min_value=1, max_value=64, value=len(participantes)+1, key="add_seed")
+
+                    if st.form_submit_button("➕ Agregar", type="primary", use_container_width=True):
+                        nombre_j1 = (j1_ext or "").strip() if j1_sel == "— Externo —" else j1_sel
+                        nombre_j2 = None
+                        if tipo_t == "dobles":
+                            nombre_j2 = (j2_ext or "").strip() if j2_sel == "— Externo —" else j2_sel
+                        if not nombre_j1:
+                            st.error("Ingresa el nombre del jugador.")
+                        else:
+                            agregar_participante(sb, t["id"], nombre_j1, nombre_j2, int(seed_val))
+                            st.success(f"✅ {nombre_j1} agregado.")
+                            st.rerun()
+
+                if participantes and not partidos:
+                    st.divider()
+                    st.markdown("#### Generar partidos")
+                    if st.button("🎯 Generar bracket / partidos", type="primary", use_container_width=True, key="btn_gen_bracket"):
+                        if formato_t == "eliminacion":
+                            generar_bracket_eliminacion(sb, t["id"], participantes, tipo_t)
+                        elif formato_t == "round_robin":
+                            generar_round_robin(sb, t["id"], participantes)
+                        elif formato_t == "grupos_eliminacion":
+                            generar_grupos(sb, t["id"], participantes, config.get("n_grupos", 4))
+                        st.success("✅ Partidos generados.")
+                        st.rerun()
+
+        # ── Partidos ──
+        with st_t2:
+            if not partidos:
+                st.info("Aún no hay partidos generados. Ve a **Participantes** y genera el bracket.")
+            else:
+                # Agrupar por fase
+                fases = list(dict.fromkeys(p["fase"] for p in partidos))
+                for fase in fases:
+                    partidos_fase = [p for p in partidos if p["fase"] == fase]
+                    grupos_fase = list(dict.fromkeys(p.get("grupo") or "" for p in partidos_fase))
+
+                    st.markdown(f"#### {fase.replace('_', ' ').title()}")
+
+                    for grupo in grupos_fase:
+                        if grupo:
+                            st.markdown(f"**Grupo {grupo}**")
+                        pts_fase = [p for p in partidos_fase if (p.get("grupo") or "") == grupo]
+
+                        for partido in pts_fase:
+                            p1 = partido.get("participante1") or {}
+                            p2 = partido.get("participante2") or {}
+                            gan = partido.get("ganador") or {}
+                            n1 = nombre_participante(p1, tipo_t)
+                            n2 = nombre_participante(p2, tipo_t)
+                            gan_n = nombre_participante(gan, tipo_t) if gan else None
+                            sets = (partido.get("resultado") or {}).get("sets", [])
+                            marcador = " / ".join(f"{s['games_1']}-{s['games_2']}" for s in sets) if sets else "—"
+
+                            col_n1, col_vs, col_n2, col_res, col_btn = st.columns([3, 1, 3, 2, 1])
+                            col_n1.markdown(f"{'**' if gan_n == n1 else ''}{n1}{'**' if gan_n == n1 else ''}")
+                            col_vs.markdown("vs")
+                            col_n2.markdown(f"{'**' if gan_n == n2 else ''}{n2}{'**' if gan_n == n2 else ''}")
+                            col_res.markdown(f"{'✅ ' if gan_n else ''}{marcador}")
+
+                            if st.session_state.es_admin:
+                                if col_btn.button("📝", key=f"edit_t_{partido['id']}"):
+                                    st.session_state["partido_torneo_sel"] = partido["id"]
+
+                    st.divider()
+
+                # Formulario de resultado
+                if st.session_state.es_admin and st.session_state.get("partido_torneo_sel"):
+                    pid_sel = st.session_state["partido_torneo_sel"]
+                    partido_sel = next((p for p in partidos if p["id"] == pid_sel), None)
+                    if partido_sel:
+                        p1 = partido_sel.get("participante1") or {}
+                        p2 = partido_sel.get("participante2") or {}
+                        n1 = nombre_participante(p1, tipo_t)
+                        n2 = nombre_participante(p2, tipo_t)
+
+                        st.markdown(f"#### Ingresar resultado: {n1} vs {n2}")
+                        with st.form(f"form_res_torneo_{pid_sel}"):
+                            sets = []
+                            for i, label in enumerate(["Set 1", "Set 2", "Set 3 (Tie-break)"]):
+                                st.markdown(f"**{label}**")
+                                cs1, cs2 = st.columns(2)
+                                max_val = 99 if i == 2 else 7
+                                g1 = cs1.number_input(f"{n1}", min_value=0, max_value=max_val, value=0, key=f"tg1_{pid_sel}_{i}")
+                                g2 = cs2.number_input(f"{n2}", min_value=0, max_value=max_val, value=0, key=f"tg2_{pid_sel}_{i}")
+                                sets.append({"games_1": int(g1), "games_2": int(g2)})
+
+                            col_f1, col_f2 = st.columns(2)
+                            if col_f1.form_submit_button("💾 Guardar", type="primary", use_container_width=True):
+                                s1, s2, s3 = sets
+                                sets_1 = sum(1 for s in [s1, s2] if s["games_1"] > s["games_2"])
+                                sets_2 = sum(1 for s in [s1, s2] if s["games_2"] > s["games_1"])
+                                sets_guardar = [s1, s2]
+                                if sets_1 == 1 and sets_2 == 1:
+                                    sets_guardar.append(s3)
+                                sets_1_total = sum(1 for s in sets_guardar if s["games_1"] > s["games_2"])
+                                sets_2_total = sum(1 for s in sets_guardar if s["games_2"] > s["games_1"])
+                                gan_id = p1["id"] if sets_1_total > sets_2_total else p2["id"]
+                                registrar_resultado_torneo(sb, pid_sel, gan_id, sets_guardar)
+                                st.session_state.pop("partido_torneo_sel", None)
+                                st.success("✅ Resultado guardado.")
+                                st.rerun()
+                            if col_f2.form_submit_button("Cancelar", use_container_width=True):
+                                st.session_state.pop("partido_torneo_sel", None)
+                                st.rerun()
+
+        # ── Resultados / Tabla ──
+        with st_t3:
+            if not completados_t:
+                st.info("Aún no hay resultados registrados.")
+            else:
+                if formato_t in ("round_robin", "grupos_eliminacion"):
+                    grupos_unicos = list(dict.fromkeys(
+                        p.get("grupo") or "A" for p in partidos if p["fase"] in ("grupos", "ronda_1") or not p["fase"].startswith("ronda_") == False
+                    ))
+                    # Tablas por grupo
+                    for grupo in grupos_unicos:
+                        if grupo:
+                            st.markdown(f"#### Grupo {grupo}")
+                        tabla = calcular_tabla_grupo(partidos, grupo or "A", tipo_t)
+                        if tabla:
+                            st.dataframe(pd.DataFrame(tabla), hide_index=True, use_container_width=True)
+                        st.divider()
+
+                # Ganadores por fase para eliminación
+                fases_elim = [f for f in dict.fromkeys(p["fase"] for p in partidos) if "ronda" not in f]
+                for fase in fases_elim:
+                    pf = [p for p in completados_t if p["fase"] == fase]
+                    if pf:
+                        st.markdown(f"**{fase.replace('_',' ').title()}**")
+                        for p in pf:
+                            gan = p.get("ganador") or {}
+                            sets = (p.get("resultado") or {}).get("sets", [])
+                            marc = " / ".join(f"{s['games_1']}-{s['games_2']}" for s in sets)
+                            st.markdown(f"🏆 {nombre_participante(gan, tipo_t)} — {marc}")
+
+# ----------------------------------------------------------------------------
+#  TAB 6: Gestión de Jugadores
 # ----------------------------------------------------------------------------
 with tab_jugadores:
     if not st.session_state.es_admin:
