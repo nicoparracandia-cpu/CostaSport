@@ -137,185 +137,142 @@ def generar_svg_eliminacion(
     tipo: str = "singles",
     titulo: str = "Torneo",
 ) -> str:
-    """Genera SVG completo del bracket de eliminación directa."""
+    """Genera SVG completo del bracket — muestra TODAS las rondas aunque esten vacias."""
 
-    # Organizar partidos por fase — incluye rondas numéricas para torneos grandes
-    orden_fases_fijo = [
-        "sesentaicuatroavos", "treintaidosavos", "dieciseisavos",
-        "octavos", "cuartos", "semifinal", "final"
-    ]
-    # Detectar fases del tipo "ronda_N" y ordenarlas por N descendente
-    fases_en_partidos = list(dict.fromkeys(p["fase"] for p in partidos))
-    rondas_numericas = sorted(
-        [f for f in fases_en_partidos if f.startswith("ronda_")],
-        key=lambda x: int(x.split("_")[1]) if x.split("_")[1].isdigit() else 0,
-        reverse=True
-    )
-    fases_presentes = []
-    for f in orden_fases_fijo:
-        if f in fases_en_partidos:
-            fases_presentes.append(f)
-    # Agregar rondas numéricas en orden correcto (mayor primero = primera ronda)
-    fases_presentes = rondas_numericas + fases_presentes
-
-    if not fases_presentes:
+    if not participantes:
         return _svg_vacio(titulo)
 
-    n_rondas = len(fases_presentes)
-    primera_fase = fases_presentes[0]
-    n_matches_primera = len([p for p in partidos if p["fase"] == primera_fase])
+    import math
 
-    # Dimensiones
-    total_w = 60 + n_rondas * (BOX_W + ROUND_GAP)
-    match_h = BOX_H * 2 + BOX_GAP
-    total_h_matches = n_matches_primera * (match_h + MATCH_GAP)
-    total_h = total_h_matches + 100
+    n = len(participantes)
+    size = 2 ** math.ceil(math.log2(n)) if n > 1 else 2
+    n_rondas = int(math.log2(size))
+
+    nombres_fase = {
+        1: "final", 2: "semifinal", 4: "cuartos",
+        8: "octavos", 16: "dieciseisavos", 32: "treintaidosavos", 64: "sesentaicuatroavos"
+    }
+
+    partidos_por_fase = {}
+    for p in partidos:
+        f = p.get("fase", "")
+        partidos_por_fase.setdefault(f, [])
+        partidos_por_fase[f].append(p)
+
+    BOX_W2   = 140
+    BOX_H2   = 22
+    BOX_GAP2 = 6
+    ROUND_GAP2 = 50
+    MATCH_H2 = BOX_H2 * 2 + BOX_GAP2
+    MARGIN_X = 30
+    MARGIN_Y = 50
+    LABEL_H  = 18
+
+    n_matches_r1 = size // 2
+    slot_h = MATCH_H2 + 20
+    area_h = n_matches_r1 * slot_h
+
+    total_w = MARGIN_X * 2 + n_rondas * (BOX_W2 + ROUND_GAP2)
+    total_h = MARGIN_Y + LABEL_H + area_h + 40
 
     lines = []
-    # Limitar altura máxima del SVG — con muchos jugadores el SVG puede ser muy alto
-    # Usamos max_h para limitar el alto visible y permitir scroll
-    lines.append(f'<svg width="{max(total_w, 800)}" height="{min(total_h, 600)}" '
+    lines.append(f'<svg width="{total_w}" height="{min(total_h, 700)}" '
                  f'viewBox="0 0 {total_w} {total_h}" '
                  f'xmlns="http://www.w3.org/2000/svg" '
-                 f'preserveAspectRatio="xMinYMin meet" '
-                 f'style="background:{COSTA_DARK};border-radius:12px;font-family:sans-serif;max-width:100%">')
+                 f'style="background:{COSTA_DARK};border-radius:12px;font-family:sans-serif">')
 
-    # Título
-    lines.append(f'<text x="{total_w//2}" y="28" '
-                 f'text-anchor="middle" fill="{COSTA_BLUE}" '
-                 f'font-size="14" font-weight="600">{titulo}</text>')
+    lines.append(f'<text x="{total_w//2}" y="24" text-anchor="middle" '
+                 f'fill="{COSTA_BLUE}" font-size="13" font-weight="600">{titulo}</text>')
 
-    # Dibujar por ronda
-    for r_idx, fase in enumerate(fases_presentes):
-        matches_fase = sorted(
-            [p for p in partidos if p["fase"] == fase],
-            key=lambda x: x.get("orden") or 0
+    def get_positions(ronda_idx):
+        n_m = max(1, n_matches_r1 // (2 ** ronda_idx))
+        spacing = area_h / n_m
+        return [MARGIN_Y + LABEL_H + spacing * (i + 0.5) for i in range(n_m)]
+
+    for r_idx in range(n_rondas):
+        size_ronda = size // (2 ** r_idx)
+        n_matches = size_ronda // 2
+        fase_nombre = nombres_fase.get(n_matches, f"ronda_{size_ronda}")
+        label = "FINAL" if r_idx == n_rondas - 1 else fase_nombre.replace("_", " ").upper()
+
+        x = MARGIN_X + r_idx * (BOX_W2 + ROUND_GAP2)
+        positions = get_positions(r_idx)
+
+        pts_fase = sorted(
+            partidos_por_fase.get(fase_nombre, []),
+            key=lambda p: p.get("orden") or 0
         )
-        n_m = len(matches_fase)
-        spacing = total_h_matches / n_m
-        x = 40 + r_idx * (BOX_W + ROUND_GAP)
 
-        # Etiqueta de ronda
-        label = fase.replace("_", " ").title()
-        lines.append(f'<text x="{x + BOX_W//2}" y="50" '
-                     f'text-anchor="middle" fill="{TEXT_MUTED}" '
-                     f'font-size="10">{label}</text>')
+        lines.append(f'<text x="{x + BOX_W2//2}" y="{MARGIN_Y + 12}" '
+                     f'text-anchor="middle" fill="{TEXT_MUTED}" font-size="9">{label}</text>')
 
-        for m_idx, match in enumerate(matches_fase):
-            y = 60 + m_idx * spacing + (spacing - match_h) / 2
-            p1 = match.get("participante1") or {}
-            p2 = match.get("participante2") or {}
-            gan = match.get("ganador") or {}
-            gan_id = match.get("ganador_id")
-            sets = (match.get("resultado") or {}).get("sets", [])
+        for m_idx, y_center in enumerate(positions):
+            y1 = y_center - MATCH_H2 / 2
+            y2 = y1 + BOX_H2 + BOX_GAP2
+            match = pts_fase[m_idx] if m_idx < len(pts_fase) else None
 
-            n1 = _nombre_corto(p1.get("jugador1_nombre", "—"))
-            n2 = _nombre_corto(p2.get("jugador1_nombre", "—"))
-            if tipo == "dobles":
-                n1 = f"{_nombre_corto(p1.get('jugador1_nombre',''))} / {_nombre_corto(p1.get('jugador2_nombre',''))}"
-                n2 = f"{_nombre_corto(p2.get('jugador1_nombre',''))} / {_nombre_corto(p2.get('jugador2_nombre',''))}"
-
-            es_ganador_j1 = gan_id == p1.get("id")
-            es_ganador_j2 = gan_id == p2.get("id")
-            marc1 = _marcador_corto(sets, True) if sets else ""
-            marc2 = _marcador_corto(sets, False) if sets else ""
-
-            bg1 = WIN_BG if es_ganador_j1 else (LOSE_BG if es_ganador_j2 else PENDING_BG)
-            bg2 = WIN_BG if es_ganador_j2 else (LOSE_BG if es_ganador_j1 else PENDING_BG)
-            tc1 = TEXT_MAIN if es_ganador_j1 else TEXT_MUTED
-            tc2 = TEXT_MAIN if es_ganador_j2 else TEXT_MUTED
-            seed1 = p1.get("seed", "")
-            seed2 = p2.get("seed", "")
-
-            # Data attributes para PDF
-            marc1_str = marc1 or ""
-            marc2_str = marc2 or ""
-            gan_nombre = nombre_participante(gan, tipo) if gan_id else ""
-            lines.append(
-                f'<g data-fase="{fase}" data-j1="{n1}" data-j2="{n2}" ' +
-                f'data-marc="{marc1_str}/{marc2_str}" data-gan="{gan_nombre}"></g>'
-            )
-            # Caja jugador 1
-            lines.append(f'<rect x="{x}" y="{y}" width="{BOX_W}" height="{BOX_H}" '
-                         f'rx="4" fill="{bg1}" stroke="{GRAY_LINE}" stroke-width="0.5"/>')
-            if seed1 and seed1 <= 4:
-                lines.append(f'<text x="{x+8}" y="{y+BOX_H//2+1}" '
-                              f'dominant-baseline="middle" fill="{COSTA_BLUE}" '
-                              f'font-size="9" font-weight="700">[{seed1}]</text>')
-                lines.append(f'<text x="{x+26}" y="{y+BOX_H//2+1}" '
-                              f'dominant-baseline="middle" fill="{tc1}" '
-                              f'font-size="11">{n1}</text>')
+            if match:
+                p1 = match.get("participante1") or {}
+                p2 = match.get("participante2") or {}
+                gan_id = match.get("ganador_id")
+                sets = (match.get("resultado") or {}).get("sets", [])
+                n1 = p1.get("jugador1_nombre", "Por definir")
+                n2 = p2.get("jugador1_nombre", "Por definir")
+                if tipo == "dobles":
+                    n1 = f"{p1.get('jugador1_nombre','')} / {p1.get('jugador2_nombre','')}"
+                    n2 = f"{p2.get('jugador1_nombre','')} / {p2.get('jugador2_nombre','')}"
+                seed1 = p1.get("seed") or 0
+                seed2 = p2.get("seed") or 0
+                es_gan1 = bool(gan_id and gan_id == p1.get("id"))
+                es_gan2 = bool(gan_id and gan_id == p2.get("id"))
+                marc = " ".join(f"{s['games_1']}-{s['games_2']}" for s in sets) if sets else ""
             else:
-                lines.append(f'<text x="{x+10}" y="{y+BOX_H//2+1}" '
-                              f'dominant-baseline="middle" fill="{tc1}" '
-                              f'font-size="11">{n1}</text>')
-            if marc1:
-                lines.append(f'<text x="{x+BOX_W-6}" y="{y+BOX_H//2+1}" '
-                              f'text-anchor="end" dominant-baseline="middle" '
-                              f'fill="{COSTA_BLUE if es_ganador_j1 else TEXT_MUTED}" '
-                              f'font-size="10" font-weight="{"600" if es_ganador_j1 else "400"}">{marc1}</text>')
+                n1 = n2 = "Por definir"
+                seed1 = seed2 = 0
+                es_gan1 = es_gan2 = False
+                marc = ""
 
-            # Caja jugador 2
-            y2 = y + BOX_H + BOX_GAP
-            lines.append(f'<rect x="{x}" y="{y2}" width="{BOX_W}" height="{BOX_H}" '
-                         f'rx="4" fill="{bg2}" stroke="{GRAY_LINE}" stroke-width="0.5"/>')
-            if seed2 and seed2 <= 4:
-                lines.append(f'<text x="{x+8}" y="{y2+BOX_H//2+1}" '
-                              f'dominant-baseline="middle" fill="{COSTA_BLUE}" '
-                              f'font-size="9" font-weight="700">[{seed2}]</text>')
-                lines.append(f'<text x="{x+26}" y="{y2+BOX_H//2+1}" '
-                              f'dominant-baseline="middle" fill="{tc2}" '
-                              f'font-size="11">{n2}</text>')
-            else:
-                lines.append(f'<text x="{x+10}" y="{y2+BOX_H//2+1}" '
-                              f'dominant-baseline="middle" fill="{tc2}" '
-                              f'font-size="11">{n2}</text>')
-            if marc2:
-                lines.append(f'<text x="{x+BOX_W-6}" y="{y2+BOX_H//2+1}" '
-                              f'text-anchor="end" dominant-baseline="middle" '
-                              f'fill="{COSTA_BLUE if es_ganador_j2 else TEXT_MUTED}" '
-                              f'font-size="10" font-weight="{"600" if es_ganador_j2 else "400"}">{marc2}</text>')
+            for j, (y_box, nombre, seed, es_gan) in enumerate([
+                (y1, n1, seed1, es_gan1),
+                (y2, n2, seed2, es_gan2)
+            ]):
+                bg = WIN_BG if es_gan else (LOSE_BG if (es_gan1 or es_gan2) and not es_gan else PENDING_BG)
+                lines.append(f'<rect x="{x}" y="{y_box:.1f}" width="{BOX_W2}" height="{BOX_H2}" '
+                             f'rx="3" fill="{bg}" stroke="{GRAY_LINE}" stroke-width="0.5"/>')
+                nx = x + (20 if seed and seed <= 8 else 5)
+                if seed and seed <= 8:
+                    lines.append(f'<text x="{x+4}" y="{y_box+BOX_H2//2+4:.1f}" '
+                                 f'fill="{ACCENT_YELLOW}" font-size="8" font-weight="700">[{seed}]</text>')
+                lines.append(f'<text x="{nx}" y="{y_box+BOX_H2//2+4:.1f}" '
+                             f'fill="{"#33B9F3" if es_gan else "white"}" font-size="10" '
+                             f'font-weight="{"600" if es_gan else "400"}">{_nombre_corto(nombre, 15)}</text>')
+                if marc and es_gan:
+                    lines.append(f'<text x="{x+BOX_W2-3}" y="{y_box+BOX_H2//2+4:.1f}" '
+                                 f'text-anchor="end" fill="{COSTA_BLUE}" font-size="8">{marc}</text>')
 
-            # Línea conectora a siguiente ronda
+            # Conectores hacia siguiente ronda
             if r_idx < n_rondas - 1:
-                mid_y = y + (match_h / 2)
-                x_right = x + BOX_W
-                x_next = x + BOX_W + ROUND_GAP
-                lines.append(f'<line x1="{x_right}" y1="{mid_y}" x2="{x_right + ROUND_GAP//2}" y1="{mid_y}" '
-                              f'x2="{x_right + ROUND_GAP//2}" y2="{mid_y}" '
-                              f'stroke="{GRAY_LINE}" stroke-width="0.5"/>')
-                lines.append(f'<path d="M{x_right} {mid_y} H{x_right + ROUND_GAP//2}" '
-                              f'fill="none" stroke="{GRAY_LINE}" stroke-width="0.5"/>')
+                x_right = x + BOX_W2
+                x_mid = x_right + ROUND_GAP2 // 2
+                y_mid_match = y_center
+                lines.append(f'<line x1="{x_right}" y1="{y_mid_match:.1f}" '
+                             f'x2="{x_mid}" y2="{y_mid_match:.1f}" '
+                             f'stroke="{GRAY_LINE}" stroke-width="0.5"/>')
+                if m_idx % 2 == 0 and m_idx + 1 < len(positions):
+                    y_partner = positions[m_idx + 1]
+                    y_join = (y_mid_match + y_partner) / 2
+                    lines.append(f'<line x1="{x_mid}" y1="{y_mid_match:.1f}" '
+                                 f'x2="{x_mid}" y2="{y_partner:.1f}" '
+                                 f'stroke="{GRAY_LINE}" stroke-width="0.5"/>')
+                    x_next = x + BOX_W2 + ROUND_GAP2
+                    lines.append(f'<line x1="{x_mid}" y1="{y_join:.1f}" '
+                                 f'x2="{x_next}" y2="{y_join:.1f}" '
+                                 f'stroke="{GRAY_LINE}" stroke-width="0.5"/>')
 
-    # Líneas de conexión entre rondas (agrupando pares)
-    for r_idx in range(len(fases_presentes) - 1):
-        fase_actual = fases_presentes[r_idx]
-        matches_actual = sorted(
-            [p for p in partidos if p["fase"] == fase_actual],
-            key=lambda x: x.get("orden") or 0
-        )
-        n_m = len(matches_actual)
-        spacing = total_h_matches / n_m
-        x_right = 40 + r_idx * (BOX_W + ROUND_GAP) + BOX_W
-        x_mid = x_right + ROUND_GAP // 2
-        x_next = x_right + ROUND_GAP
-
-        for i in range(0, n_m, 2):
-            if i + 1 >= n_m:
-                break
-            y_a = 60 + i * spacing + (spacing - (BOX_H * 2 + BOX_GAP)) / 2 + BOX_H + BOX_GAP // 2
-            y_b = 60 + (i+1) * spacing + (spacing - (BOX_H * 2 + BOX_GAP)) / 2 + BOX_H + BOX_GAP // 2
-            y_mid = (y_a + y_b) / 2
-
-            lines.append(f'<path d="M{x_right} {y_a} H{x_mid} V{y_b} H{x_right}" '
-                         f'fill="none" stroke="{GRAY_LINE}" stroke-width="0.5"/>')
-            lines.append(f'<line x1="{x_mid}" y1="{y_mid}" x2="{x_next}" y2="{y_mid}" '
-                         f'stroke="{GRAY_LINE}" stroke-width="0.5"/>')
-
-    # Trofeo al final
-    x_trophy = 40 + n_rondas * (BOX_W + ROUND_GAP) - ROUND_GAP + 10
-    lines.append(f'<text x="{x_trophy}" y="{total_h//2}" '
-                 f'font-size="24" dominant-baseline="middle">🏆</text>')
+    x_trophy = MARGIN_X + (n_rondas - 0.3) * (BOX_W2 + ROUND_GAP2)
+    y_trophy = MARGIN_Y + LABEL_H + area_h / 2
+    lines.append(f'<text x="{x_trophy:.0f}" y="{y_trophy:.0f}" font-size="20" '
+                 f'dominant-baseline="middle">🏆</text>')
 
     lines.append('</svg>')
     return '\n'.join(lines)
