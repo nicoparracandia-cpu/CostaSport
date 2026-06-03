@@ -1104,6 +1104,8 @@ with tab_torneos:
         if st.session_state.es_admin:
             if col_tf.button("🏁 Finalizar", use_container_width=True):
                 st.session_state["confirm_finalizar_torneo"] = t["id"]
+            if col_td.button("🗑️ Eliminar", use_container_width=True):
+                st.session_state["confirm_eliminar_torneo"] = t["id"]
 
         if st.session_state.get("confirm_finalizar_torneo") == t["id"] and st.session_state.es_admin:
             config_t = t.get("config") or {}
@@ -1137,8 +1139,6 @@ with tab_torneos:
             if col_sf2.button("Cancelar", use_container_width=True, key="btn_canc_fin"):
                 st.session_state.pop("confirm_finalizar_torneo", None)
                 st.rerun()
-            if col_td.button("🗑️ Eliminar", use_container_width=True):
-                st.session_state["confirm_eliminar_torneo"] = t["id"]
 
         # Confirmación eliminación
         if st.session_state.get("confirm_eliminar_torneo") == t["id"]:
