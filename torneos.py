@@ -190,6 +190,38 @@ def nombre_participante(p: dict, tipo: str = "singles") -> str:
     return p["jugador1_nombre"]
 
 
+
+def _construir_bracket_principal(seeded: list, unseeded: list, size: int) -> list:
+    """Ubica seeds en posiciones ATP y rellena resto con no-seeds."""
+    import random
+    bracket = [None] * size
+    seed_pos = {}
+    if size >= 2:
+        seed_pos[1] = 0
+        seed_pos[2] = size - 1
+    if size >= 4:
+        pos34 = [size//2-1, size//2]
+        random.shuffle(pos34)
+        seed_pos[3] = pos34[0]
+        seed_pos[4] = pos34[1]
+    if size >= 8:
+        pos58 = [size//4-1, size//4, 3*size//4-1, 3*size//4]
+        random.shuffle(pos58)
+        for i, s in enumerate(range(5, 9)):
+            if i < len(pos58):
+                seed_pos[s] = pos58[i]
+    for p in seeded:
+        pos = seed_pos.get(p["seed"])
+        if pos is not None and 0 <= pos < size and bracket[pos] is None:
+            bracket[pos] = p
+    pool = [p for p in seeded if p not in bracket] + list(unseeded)
+    random.shuffle(pool)
+    for i in range(size):
+        if bracket[i] is None and pool:
+            bracket[i] = pool.pop(0)
+    return bracket
+
+
 def generar_bracket_eliminacion(sb, torneo_id: int, participantes: list[dict], tipo: str, config: dict = None) -> None:
     """
     Genera bracket de eliminación directa.
