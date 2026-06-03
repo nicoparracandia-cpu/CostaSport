@@ -28,8 +28,10 @@ NOMBRES_FASE = {
 }
 
 def _cortar(nombre, mx=15):
-    if not nombre or nombre in ("BYE","Por definir",""):
-        return "BYE"
+    if not nombre or nombre.strip() == "":
+        return ""
+    if nombre in ("BYE","Por definir"):
+        return ""
     p = nombre.strip().split()
     s = f"{p[0][0]}. {' '.join(p[1:])}" if len(p)>=2 else nombre
     return s[:mx]
@@ -46,16 +48,18 @@ def _caja(c, x, y, w, h, nombre, seed, ganador, es_bye=False):
     if es_bye:
         return
     ty = y + h/2 - 2.5
-    if seed and seed <= 8:
-        c.setFillColor(C_YELLOW)
-        c.setFont("Helvetica-Bold", 5.5)
-        c.drawString(x+2, ty, f"[{seed}]")
-        nx = x + 13
-    else:
-        nx = x + 3
-    c.setFillColor(C_BLUE if ganador else C_WHITE)
-    c.setFont("Helvetica-Bold" if ganador else "Helvetica", 6.5)
-    c.drawString(nx, ty, _cortar(nombre))
+    nombre_corto = _cortar(nombre)
+    if nombre_corto:
+        if seed and seed <= 8:
+            c.setFillColor(C_YELLOW)
+            c.setFont("Helvetica-Bold", 5.5)
+            c.drawString(x+2, ty, f"[{seed}]")
+            nx = x + 13
+        else:
+            nx = x + 3
+        c.setFillColor(C_BLUE if ganador else C_WHITE)
+        c.setFont("Helvetica-Bold" if ganador else "Helvetica", 6.5)
+        c.drawString(nx, ty, nombre_corto)
 
 
 def _construir_bracket_con_byes(participantes, size):
@@ -254,15 +258,16 @@ def generar_pdf_bracket_visual(
                         mp2 = match.get("participante2") or {}
                         gan_id = match.get("ganador_id")
                         sets = (match.get("resultado") or {}).get("sets",[])
-                        n1 = mp1.get("jugador1_nombre","Por definir")
-                        n2 = mp2.get("jugador1_nombre","Por definir")
+                        n1 = mp1.get("jugador1_nombre","") or ""
+                        n2 = mp2.get("jugador1_nombre","") or ""
                         s1 = mp1.get("seed") or 0
                         s2 = mp2.get("seed") or 0
                         g1 = bool(gan_id and gan_id==mp1.get("id"))
                         g2 = bool(gan_id and gan_id==mp2.get("id"))
                         marc = "  ".join(f"{s['games_1']}-{s['games_2']}" for s in sets) if sets else ""
                     else:
-                        n1=n2=""; s1=s2=0; g1=g2=False; marc=""; bye1=bye2=False
+                        # Sin partido aún — caja vacía
+                        n1=n2=""; s1=s2=0; g1=g2=False; marc=""
                     bye1=bye2=False
 
                 _caja(c, x, y1, BOX_W, BOX_H, n1, s1, g1, bye1)
