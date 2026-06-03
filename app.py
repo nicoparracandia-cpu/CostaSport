@@ -35,6 +35,7 @@ from bracket import (
     generar_svg_eliminacion, generar_svg_round_robin, generar_svg_grupos,
     generar_pdf_bracket,
 )
+from bracket_pdf import generar_pdf_bracket_visual
 from torneos import (
     get_torneo_activo, get_todos_torneos, crear_torneo, finalizar_torneo, eliminar_torneo,
     calcular_puntos_torneo, aplicar_puntos_al_ranking,
@@ -1433,8 +1434,7 @@ with tab_torneos:
                     if st.button("📄 Generar PDF brandeado", type="primary", use_container_width=True):
                         with st.spinner("Generando PDF..."):
                             try:
-                                from bracket import generar_pdf_desde_partidos
-                                pdf_bytes = generar_pdf_desde_partidos(
+                                pdf_bytes = generar_pdf_bracket_visual(
                                     partidos=partidos,
                                     titulo=t["nombre"],
                                     subtitulo=subtitulo_pdf,

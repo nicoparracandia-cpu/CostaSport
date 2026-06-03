@@ -19,9 +19,12 @@ from pathlib import Path
 
 def hacer_sorteo(participantes: list[dict], tipo_formato: str) -> list[dict]:
     """
-    Genera el orden del bracket respetando los seeds.
-    Seeds fijos: seed 1 arriba, seed 2 abajo, seed 3/4 en semis opuestas.
-    El resto se sortea aleatoriamente en los espacios disponibles.
+    Genera el orden del bracket respetando el seeding ATP:
+    - Seed 1: posición 1 (arriba del todo)
+    - Seed 2: posición final (abajo del todo)
+    - Seeds 3-4: sorteados, uno en cada mitad opuesta (posiciones centrales de cada mitad)
+    - Seeds 5-8: sorteados, uno en cada cuarto
+    - Resto: sorteados aleatoriamente en posiciones vacías
     """
     seeded = [p for p in participantes if (p.get("seed") or 0) > 0]
     unseeded = [p for p in participantes if not (p.get("seed") or 0) > 0]
@@ -30,24 +33,47 @@ def hacer_sorteo(participantes: list[dict], tipo_formato: str) -> list[dict]:
 
     n = len(participantes)
     size = 2 ** math.ceil(math.log2(n)) if n > 1 else 2
-
-    # Posiciones fijas para los 4 primeros seeds en bracket de 8+
-    seed_positions = {}
-    if size >= 4:
-        seed_positions[1] = 0            # primer lugar
-        seed_positions[2] = size - 1     # último lugar
-    if size >= 8:
-        seed_positions[3] = size // 2 - 1   # mitad superior final
-        seed_positions[4] = size // 2       # mitad inferior inicio
-
     bracket = [None] * size
-    for s in seeded:
-        pos = seed_positions.get(s["seed"])
-        if pos is not None and bracket[pos] is None:
-            bracket[pos] = s
 
-    # Llenar posiciones vacías con no-seeds
-    pool = list(unseeded) + [s for s in seeded if s not in bracket]
+    # ── Seed 1 y 2: posiciones fijas extremos ──
+    seed_map = {}
+    s1 = next((p for p in seeded if p["seed"] == 1), None)
+    s2 = next((p for p in seeded if p["seed"] == 2), None)
+    if s1: bracket[0] = s1; seed_map[1] = 0
+    if s2: bracket[size-1] = s2; seed_map[2] = size-1
+
+    # ── Seeds 3-4: uno en cada mitad, sorteados ──
+    s3 = next((p for p in seeded if p["seed"] == 3), None)
+    s4 = next((p for p in seeded if p["seed"] == 4), None)
+    # Posiciones finales de cada mitad (justo antes del centro)
+    pos_mitad_sup = size // 2 - 1   # último de la mitad superior
+    pos_mitad_inf = size // 2       # primero de la mitad inferior
+    pos_34 = [pos_mitad_sup, pos_mitad_inf]
+    random.shuffle(pos_34)
+    if s3 and bracket[pos_34[0]] is None:
+        bracket[pos_34[0]] = s3; seed_map[3] = pos_34[0]
+    if s4 and bracket[pos_34[1]] is None:
+        bracket[pos_34[1]] = s4; seed_map[4] = pos_34[1]
+
+    # ── Seeds 5-8: uno en cada cuarto ──
+    cuartos_pos = [
+        size // 4 - 1,        # fin del 1er cuarto
+        size // 4,            # inicio del 2do cuarto
+        3 * size // 4 - 1,   # fin del 3er cuarto
+        3 * size // 4,        # inicio del 4to cuarto
+    ]
+    # Asegurarse de que no estén ocupadas
+    cuartos_libres = [p for p in cuartos_pos if bracket[p] is None]
+    random.shuffle(cuartos_libres)
+    seeds_5_8 = [p for p in seeded if p["seed"] in (5,6,7,8)]
+    random.shuffle(seeds_5_8)
+    for i, s in enumerate(seeds_5_8):
+        if i < len(cuartos_libres):
+            bracket[cuartos_libres[i]] = s
+
+    # ── Resto: llenar posiciones vacías aleatoriamente ──
+    ya_colocados = set(id(p) for p in bracket if p is not None)
+    pool = [p for p in seeded if id(p) not in ya_colocados] + list(unseeded)
     random.shuffle(pool)
     for i in range(size):
         if bracket[i] is None and pool:
