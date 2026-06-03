@@ -1040,6 +1040,15 @@ with tab_torneos:
                     pts_treintaidosavos = col_p6.number_input("32avos / rondas previas", min_value=0, value=15, step=5,
                         help="Se aplica a 32avos, 64avos y cualquier ronda antes de 16avos")
 
+                    col_tam1, col_tam2 = st.columns(2)
+                    tam_bracket = col_tam1.selectbox(
+                        "Tamaño del bracket",
+                        options=[16, 32, 64, 128],
+                        index=1,
+                        help="Si hay más jugadores que slots, se genera una ronda previa automática."
+                    )
+                    col_tam2.caption("Si hay más jugadores que slots, los excedentes juegan una ronda previa. Los seeds entran directo al bracket principal.")
+
                     n_grupos = 4
                     if t_formato == "grupos_eliminacion":
                         n_grupos = st.number_input("Número de grupos", min_value=2, max_value=8, value=4)
@@ -1049,6 +1058,7 @@ with tab_torneos:
                             st.error("Ingresa un nombre para el torneo.")
                         else:
                             config = {
+                                "tam_bracket": int(tam_bracket),
                                 "puntos_por_victoria": {
                                     "final": int(pts_final),
                                     "semifinal": int(pts_semifinal),
@@ -1207,6 +1217,13 @@ with tab_torneos:
                         st.rerun()
                 with col_info_s:
                     st.caption("El sorteo ubica seed 1 vs seed 8, seed 2 vs seed 7, etc. Los no-seeds se distribuyen aleatoriamente.")
+                    tam = config.get("tam_bracket", 0)
+                    if tam:
+                        n_part = len(participantes)
+                        if n_part > tam:
+                            st.info(f"ℹ️ {n_part} jugadores para un bracket de {tam}. Los {n_part - tam + (tam - len([p for p in participantes if (p.get('seed') or 0) > 0]))} no-seeds sobrantes jugarán una **ronda previa**.")
+                        elif n_part < tam:
+                            st.info(f"ℹ️ {n_part} jugadores para un bracket de {tam}. Habrá {tam - n_part} BYEs automáticos.")
                     if partidos:
                         st.warning("Ya hay partidos generados — el sorteo está bloqueado.")
 
@@ -1311,7 +1328,7 @@ with tab_torneos:
                     st.markdown("#### Generar partidos")
                     if st.button("🎯 Generar bracket / partidos", type="primary", use_container_width=True, key="btn_gen_bracket"):
                         if formato_t == "eliminacion":
-                            generar_bracket_eliminacion(sb, t["id"], participantes, tipo_t)
+                            generar_bracket_eliminacion(sb, t["id"], participantes, tipo_t, config)
                         elif formato_t == "round_robin":
                             generar_round_robin(sb, t["id"], participantes)
                         elif formato_t == "grupos_eliminacion":
@@ -1441,6 +1458,7 @@ with tab_torneos:
                                     tipo=tipo_t,
                                     logo_path="assets/logo.png",
                                     participantes=participantes,
+                                    config=config,
                                 )
                                 st.session_state["pdf_bracket"] = pdf_bytes
                                 st.success("✅ PDF listo para descargar.")

@@ -111,6 +111,7 @@ def generar_pdf_bracket_visual(
     tipo: str = "singles",
     logo_path: str = "assets/logo.png",
     participantes: list[dict] | None = None,
+    config: dict | None = None,
 ) -> bytes:
 
     page_w, page_h = landscape(A4)
@@ -118,12 +119,14 @@ def generar_pdf_bracket_visual(
     c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
 
     # Calcular tamaño del bracket
-    n = len(participantes) if participantes else sum(1 for _ in set(
-        p.get("participante1",{}).get("jugador1_nombre","")
-        for p in partidos if p.get("participante1")
-    ))
+    n = len(participantes) if participantes else 16
     n = max(n, 4)
-    size = 2 ** math.ceil(math.log2(n))
+    config = config or {}
+    tam_bracket = config.get("tam_bracket", 0)
+    if tam_bracket and tam_bracket >= 4:
+        size = tam_bracket
+    else:
+        size = 2 ** math.ceil(math.log2(n))
     n_rondas = int(math.log2(size))
 
     # Construir bracket si tenemos participantes
