@@ -190,49 +190,51 @@ def nombre_participante(p: dict, tipo: str = "singles") -> str:
     return p["jugador1_nombre"]
 
 
-def generar_bracket_eliminacion(sb, torneo_id: int, participantes: list[dict], tipo: str) -> None:
+def generar_bracket_eliminacion(sb, torneo_id: int, participantes: list[dict], tipo: str, config: dict = None) -> None:
     """
     Genera bracket de eliminación directa.
-    Usa el campo 'seed' como posición en el bracket (ya fue asignado por aplicar_sorteo_supabase).
-    Si los seeds son posiciones del sorteo (valores altos), los usa directamente.
-    Si son seeds de cabeza de serie (valores bajos, 1-8), aplica sorteo ATP.
+    - Usa tam_bracket del config (16/32/64/128).
+    - Si hay más jugadores que slots: ronda previa para no-seeds.
+    - Seeds entran directo al bracket principal.
     """
-    import math
-    from bracket import hacer_sorteo
+    import math, random
 
+    config = config or {}
+    tam_bracket = config.get("tam_bracket", 0)
     n = len(participantes)
-    size = 2 ** math.ceil(math.log2(n)) if n > 1 else 2
 
-    # Verificar si ya se hizo el sorteo (seeds son posiciones 1..size)
-    seeds = [p.get("seed") or 0 for p in participantes]
-    max_seed = max(seeds) if seeds else 0
-
-    if max_seed >= n:
-        # Seeds son posiciones del bracket (ya sorteado) — usar directamente
-        bracket = [None] * size
-        for p in participantes:
-            pos = (p.get("seed") or 1) - 1
-            if 0 <= pos < size:
-                bracket[pos] = p
-        # Llenar posiciones vacías con participantes sin seed
-        sin_pos = [p for p in participantes if not p.get("seed") or p.get("seed") == 0]
-        for i in range(size):
-            if bracket[i] is None and sin_pos:
-                bracket[i] = sin_pos.pop(0)
+    if tam_bracket and tam_bracket >= 4:
+        size = tam_bracket
     else:
-        # No se hizo sorteo — aplicar sorteo ATP automáticamente
-        bracket = hacer_sorteo(participantes, "eliminacion")
+        size = 2 ** math.ceil(math.log2(n)) if n > 1 else 2
 
-    # Crear partidos de primera ronda
+    seeded   = sorted([p for p in participantes if (p.get("seed") or 0) > 0], key=lambda x: x["seed"])
+    unseeded = [p for p in participantes if not (p.get("seed") or 0) > 0]
+    random.shuffle(unseeded)
+
+    if n > size:
+        # Más jugadores que slots → ronda previa para no-seeds sobrantes
+        slots_para_unseeded = size - len(seeded)
+        unseeded_directo = unseeded[:slots_para_unseeded]
+        unseeded_previa  = unseeded[slots_para_unseeded:]
+        orden_previa = 1
+        for i in range(0, len(unseeded_previa)-1, 2):
+            crear_partido(sb, torneo_id, "ronda_previa",
+                         unseeded_previa[i]["id"], unseeded_previa[i+1]["id"], orden=orden_previa)
+            orden_previa += 1
+        if len(unseeded_previa) % 2 == 1:
+            unseeded_directo.append(unseeded_previa[-1])
+        bracket = _construir_bracket_principal(seeded, unseeded_directo, size)
+    else:
+        bracket = _construir_bracket_principal(seeded, unseeded, size)
+
     fase = _nombre_fase(size)
     for i in range(0, size, 2):
         p1 = bracket[i]
-        p2 = bracket[i + 1] if i + 1 < size else None
-        if p1 is None and p2 is None:
-            continue
+        p2 = bracket[i+1] if i+1 < size else None
         if p1 is None or p2 is None:
             continue
-        crear_partido(sb, torneo_id, fase, p1["id"], p2["id"], orden=i // 2 + 1)
+        crear_partido(sb, torneo_id, fase, p1["id"], p2["id"], orden=i//2+1)
 
 
 def _nombre_fase(size: int) -> str:
