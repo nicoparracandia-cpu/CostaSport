@@ -99,6 +99,7 @@ def aplicar_sorteo_supabase(sb, torneo_id: int, participantes: list[dict]) -> No
 COSTA_BLUE = "#33B9F3"
 COSTA_DARK = "#0E1117"
 GRAY_LINE = "#2A2F3E"
+ACCENT_YELLOW = "#FFD700"
 TEXT_MAIN = "#FFFFFF"
 TEXT_MUTED = "#8B9CC8"
 WIN_BG = "#1A2744"
