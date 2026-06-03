@@ -110,7 +110,16 @@ BOX_W = 160
 BOX_H = 28
 BOX_GAP = 8       # gap entre j1 y j2 dentro de match
 ROUND_GAP = 60    # espacio horizontal entre rondas
-MATCH_GAP = 20    # espacio vertical entre matches
+MATCH_GAP = 20
+
+BOX_W2   = 140
+BOX_H2   = 22
+BOX_GAP2 = 6
+ROUND_GAP2 = 50
+MATCH_H2 = BOX_H2 * 2 + BOX_GAP2
+MARGIN_X2 = 30
+MARGIN_Y2 = 50
+LABEL_H2  = 18
 
 
 def _nombre_corto(nombre: str, max_len: int = 18) -> str:
@@ -160,14 +169,10 @@ def generar_svg_eliminacion(
         partidos_por_fase.setdefault(f, [])
         partidos_por_fase[f].append(p)
 
-    BOX_W2   = 140
-    BOX_H2   = 22
-    BOX_GAP2 = 6
-    ROUND_GAP2 = 50
-    MATCH_H2 = BOX_H2 * 2 + BOX_GAP2
-    MARGIN_X = 30
-    MARGIN_Y = 50
-    LABEL_H  = 18
+    # Usar constantes globales BOX_W2, BOX_H2, etc.
+    MARGIN_X = MARGIN_X2
+    MARGIN_Y = MARGIN_Y2
+    LABEL_H  = LABEL_H2
 
     n_matches_r1 = size // 2
     slot_h = MATCH_H2 + 20
