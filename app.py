@@ -1186,7 +1186,7 @@ with tab_torneos:
                         col_nom, col_seed, col_btn = st.columns([4, 2, 1])
                         col_nom.markdown(nombre_participante(p, tipo_t))
                         nuevo_seed = col_seed.number_input(
-                            "Seed", min_value=0, max_value=32,
+                            "Seed", min_value=0, max_value=256,
                             value=int(p.get("seed") or 0),
                             key=f"seed_{p['id']}",
                             label_visibility="collapsed"
