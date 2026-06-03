@@ -54,19 +54,38 @@ def calcular_puntos_torneo(partidos: list[dict], participantes: list[dict],
     pts_config = config.get("puntos_por_victoria", {})
     puntos = {}
 
+    # Orden jerárquico de fases para fallback
+    jerarquia_fases = [
+        "final", "semifinal", "cuartos", "octavos",
+        "dieciseisavos", "treintaidosavos", "sesentaicuatroavos",
+        "ronda_3", "ronda_2", "ronda_1", "grupos"
+    ]
+
+    def pts_para_fase(fase: str) -> int:
+        """Busca puntos para la fase, con fallback a fases anteriores."""
+        if fase in pts_config:
+            return int(pts_config[fase])
+        # Si no está definida, usar la fase inmediatamente anterior en jerarquía
+        try:
+            idx = jerarquia_fases.index(fase)
+            for i in range(idx + 1, len(jerarquia_fases)):
+                if jerarquia_fases[i] in pts_config:
+                    return int(pts_config[jerarquia_fases[i]])
+        except ValueError:
+            pass
+        return int(pts_config.get("ronda_1", 0))
+
     for partido in partidos:
         if not partido.get("ganador_id"):
             continue
         gan = partido.get("ganador") or {}
         nombre_gan = gan.get("jugador1_nombre", "")
-        if tipo == "dobles" and gan.get("jugador2_nombre"):
-            nombre_gan = gan["jugador1_nombre"]
-            nombre_gan2 = gan.get("jugador2_nombre", "")
+        nombre_gan2 = gan.get("jugador2_nombre", "") if tipo == "dobles" else ""
         fase = partido.get("fase", "ronda_1")
-        pts = int(pts_config.get(fase, pts_config.get("ronda_1", 0)))
+        pts = pts_para_fase(fase)
         if nombre_gan:
             puntos[nombre_gan] = puntos.get(nombre_gan, 0) + pts
-        if tipo == "dobles" and gan.get("jugador2_nombre"):
+        if tipo == "dobles" and nombre_gan2:
             puntos[nombre_gan2] = puntos.get(nombre_gan2, 0) + pts
 
     return puntos

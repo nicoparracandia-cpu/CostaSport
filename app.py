@@ -1027,12 +1027,17 @@ with tab_torneos:
                     }[x])
 
                     st.markdown("**Puntos por victoria** (solo singles — se suman al ranking de la escalerilla)")
-                    st.caption("Configura cuántos puntos suma cada victoria según la ronda.")
-                    col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-                    pts_final     = col_p1.number_input("Final (ganador)", min_value=0, value=500, step=50, help="Puntos por ganar la final = campeón")
-                    pts_semifinal = col_p2.number_input("Semifinal", min_value=0, value=200, step=25, help="Puntos por ganar en semifinal")
-                    pts_cuartos   = col_p3.number_input("Cuartos", min_value=0, value=100, step=25, help="Puntos por ganar en cuartos")
-                    pts_ronda1    = col_p4.number_input("1ª ronda", min_value=0, value=50, step=25, help="Puntos por ganar en primera ronda")
+                    st.caption("Cada victoria en esa ronda suma los puntos configurados. Aplica para cualquier tamaño de torneo.")
+                    col_p1, col_p2 = st.columns(2)
+                    col_p3, col_p4 = st.columns(2)
+                    col_p5, col_p6 = st.columns(2)
+                    pts_final        = col_p1.number_input("Final (campeón)", min_value=0, value=500, step=50)
+                    pts_semifinal    = col_p2.number_input("Semifinal", min_value=0, value=200, step=25)
+                    pts_cuartos      = col_p3.number_input("Cuartos de final", min_value=0, value=100, step=25)
+                    pts_octavos      = col_p4.number_input("Octavos de final", min_value=0, value=60, step=10)
+                    pts_dieciseisavos = col_p5.number_input("16avos de final", min_value=0, value=30, step=10)
+                    pts_treintaidosavos = col_p6.number_input("32avos / rondas previas", min_value=0, value=15, step=5,
+                        help="Se aplica a 32avos, 64avos y cualquier ronda antes de 16avos")
 
                     n_grupos = 4
                     if t_formato == "grupos_eliminacion":
@@ -1047,11 +1052,14 @@ with tab_torneos:
                                     "final": int(pts_final),
                                     "semifinal": int(pts_semifinal),
                                     "cuartos": int(pts_cuartos),
-                                    "octavos": int(pts_ronda1),
-                                    "dieciseisavos": int(pts_ronda1),
-                                    "ronda_1": int(pts_ronda1),
-                                    "ronda_2": int(pts_ronda1),
-                                    "grupos": int(pts_ronda1),
+                                    "octavos": int(pts_octavos),
+                                    "dieciseisavos": int(pts_dieciseisavos),
+                                    "treintaidosavos": int(pts_treintaidosavos),
+                                    "sesentaicuatroavos": int(pts_treintaidosavos),
+                                    "ronda_1": int(pts_treintaidosavos),
+                                    "ronda_2": int(pts_dieciseisavos),
+                                    "ronda_3": int(pts_octavos),
+                                    "grupos": int(pts_dieciseisavos),
                                 },
                                 "n_grupos": int(n_grupos),
                             }
