@@ -1191,20 +1191,60 @@ with tab_torneos:
             if st.session_state.es_admin:
                 st.divider()
                 st.markdown("#### Cabezas de serie")
-                st.caption("Asigna seed a los favoritos antes del sorteo. Seeds 1-4 se ubican en posiciones fijas del bracket.")
+
                 if participantes:
-                    for p in sorted(participantes, key=lambda x: x.get("seed") or 999):
-                        col_nom, col_seed, col_btn = st.columns([4, 2, 1])
-                        col_nom.markdown(nombre_participante(p, tipo_t))
-                        nuevo_seed = col_seed.number_input(
-                            "Seed", min_value=0, max_value=256,
-                            value=int(p.get("seed") or 0),
-                            key=f"seed_{p['id']}",
-                            label_visibility="collapsed"
-                        )
-                        if col_btn.button("💾", key=f"saveseed_{p['id']}", help="Guardar seed"):
-                            actualizar_seed(sb, p["id"], int(nuevo_seed))
-                            st.rerun()
+                    n_part = len(participantes)
+                    tam = config.get("tam_bracket", 0)
+
+                    # Selector de cuántos cabezas de serie
+                    col_ns, col_info_ns = st.columns([1, 3])
+                    n_seeds = col_ns.number_input(
+                        "¿Cuántos cabezas de serie?",
+                        min_value=0, max_value=min(16, n_part),
+                        value=min(4, n_part),
+                        step=1,
+                        key="n_cabezas_serie",
+                        help="Los primeros N del ranking serán seeds automáticamente"
+                    )
+                    col_info_ns.caption(
+                        f"Los primeros **{int(n_seeds)}** jugadores del ranking serán seeds 1..{int(n_seeds)}. "
+                        f"Los seeds reciben BYE si hay más slots que jugadores."
+                    )
+
+                    # Aplicar seeds automáticos por ranking
+                    if st.button("✅ Asignar seeds por ranking", use_container_width=True,
+                                 disabled=bool(partidos), key="btn_asignar_seeds"):
+                        # Ordenar participantes por ranking (seed actual o posición en lista)
+                        partic_ordenados = sorted(participantes, key=lambda x: x.get("seed") or 999)
+                        # Resetear todos a 0
+                        for p in participantes:
+                            actualizar_seed(sb, p["id"], 0)
+                        # Asignar seeds 1..N a los primeros N
+                        for i, p in enumerate(partic_ordenados[:int(n_seeds)], start=1):
+                            actualizar_seed(sb, p["id"], i)
+                        st.success(f"✅ Seeds 1-{int(n_seeds)} asignados a los primeros {int(n_seeds)} jugadores.")
+                        st.rerun()
+
+                    # Mostrar lista con seeds actuales
+                    with st.expander("Ver/editar seeds manualmente"):
+                        st.caption("Puedes ajustar seeds individuales si necesitas cambiar alguno.")
+                        partic_sorted = sorted(participantes, key=lambda x: x.get("seed") or 999)
+                        for p in partic_sorted:
+                            col_nom, col_seed, col_btn = st.columns([4, 2, 1])
+                            seed_actual = p.get("seed") or 0
+                            col_nom.markdown(
+                                f"**[{seed_actual}]** {nombre_participante(p, tipo_t)}"
+                                if seed_actual else nombre_participante(p, tipo_t)
+                            )
+                            nuevo_seed = col_seed.number_input(
+                                "Seed", min_value=0, max_value=256,
+                                value=int(seed_actual),
+                                key=f"seed_{p['id']}",
+                                label_visibility="collapsed"
+                            )
+                            if col_btn.button("💾", key=f"saveseed_{p['id']}", help="Guardar"):
+                                actualizar_seed(sb, p["id"], int(nuevo_seed))
+                                st.rerun()
 
                 st.divider()
                 col_sorteo, col_info_s = st.columns([1, 2])
@@ -1212,18 +1252,22 @@ with tab_torneos:
                     if st.button("🎲 Hacer sorteo", type="primary", use_container_width=True,
                                  disabled=bool(partidos),
                                  help="Genera el orden del bracket respetando seeds"):
-                        aplicar_sorteo_supabase(sb, t["id"], participantes)
+                        # Recargar participantes con seeds actualizados
+                        participantes_fresh = get_participantes(sb, t["id"])
+                        aplicar_sorteo_supabase(sb, t["id"], participantes_fresh)
                         st.success("✅ Sorteo realizado. Ahora genera los partidos.")
                         st.rerun()
                 with col_info_s:
-                    st.caption("El sorteo ubica seed 1 vs seed 8, seed 2 vs seed 7, etc. Los no-seeds se distribuyen aleatoriamente.")
                     tam = config.get("tam_bracket", 0)
-                    if tam:
+                    if tam and participantes:
                         n_part = len(participantes)
+                        n_seeds_act = len([p for p in participantes if (p.get("seed") or 0) > 0])
+                        n_byes = tam - n_part
                         if n_part > tam:
-                            st.info(f"ℹ️ {n_part} jugadores para un bracket de {tam}. Los {n_part - tam + (tam - len([p for p in participantes if (p.get('seed') or 0) > 0]))} no-seeds sobrantes jugarán una **ronda previa**.")
-                        elif n_part < tam:
-                            st.info(f"ℹ️ {n_part} jugadores para un bracket de {tam}. Habrá {tam - n_part} BYEs automáticos.")
+                            n_previa = n_part - tam + n_seeds_act
+                            st.info(f"ℹ️ {n_part} jugadores en bracket de {tam}. {n_previa} no-seeds jugarán **ronda previa**.")
+                        elif n_byes > 0:
+                            st.info(f"ℹ️ {n_part} jugadores en bracket de {tam}. {min(n_byes, n_seeds_act)} seeds recibirán **BYE** automático.")
                     if partidos:
                         st.warning("Ya hay partidos generados — el sorteo está bloqueado.")
 
