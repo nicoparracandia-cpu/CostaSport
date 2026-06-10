@@ -49,6 +49,7 @@ from torneos import (
     calcular_tabla_grupo, nombre_participante, calcular_puntos_ranking,
 )
 from db import (
+    get_todos_jugadores,
     cargar_historial,
     guardar_historial,
     get_jugadores,
@@ -772,7 +773,9 @@ with tab_ranking:
         else:
             st.caption("DEBUG: Ningún partido saltado ✅")
         # FIN DEBUG
-        df_ranking = calcular_ranking(st.session_state.historial, jugadores)
+        # Usar todos los jugadores (activos e inactivos) para el ranking
+        todos_jugadores_ranking = [{"Ranking": j["ranking"], "Jugador": j["nombre"], "performance": j.get("performance") or 0, "puntos_base": j.get("puntos_base") or 0} for j in get_todos_jugadores()]
+        df_ranking = calcular_ranking(st.session_state.historial, todos_jugadores_ranking)
 
         total_partidos = len(partidos_completados(st.session_state.historial))
         lider = df_ranking.iloc[0]
