@@ -1,7 +1,8 @@
 """
-resultados.py
+resultados.py v2
 -------------
 Lógica de resultados y ranking para la escalerilla.
+Incluye búsqueda flexible de nombres (tolera tildes y mayúsculas).
 """
 from __future__ import annotations
 from datetime import datetime
