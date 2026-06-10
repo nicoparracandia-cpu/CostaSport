@@ -44,10 +44,6 @@ def registrar_partidos_generados(historial: dict, resultados_ronda: list[dict]) 
 
 
 def _ganador_desde_sets(sets: list[dict], j1: str, j2: str) -> str:
-    """
-    Determina el ganador. Formato: 3 sets, el 3° es tie-break a 10 (diff 2).
-    El ganador es quien gana más sets (2 de 3).
-    """
     sets_1 = sum(1 for s in sets if s["games_1"] > s["games_2"])
     sets_2 = sum(1 for s in sets if s["games_2"] > s["games_1"])
     if sets_1 > sets_2:
@@ -59,36 +55,25 @@ def _ganador_desde_sets(sets: list[dict], j1: str, j2: str) -> str:
 
 
 def validar_sets(sets: list[dict]) -> list[str]:
-    """
-    Valida el formato de los sets. Retorna lista de errores (vacía si todo OK).
-    Sets 1 y 2: games normales.
-    Set 3: tie-break a 10, diferencia mínima de 2.
-    """
     errores = []
     for i, s in enumerate(sets):
         g1, g2 = s["games_1"], s["games_2"]
         num_set = i + 1
         if num_set < 3:
-            # Sets normales: al menos uno llega a 6, diferencia mínima de 2 (excepto tie-break 7-6)
             if g1 == g2:
                 errores.append(f"Set {num_set}: no puede terminar empatado ({g1}-{g2}).")
             elif max(g1, g2) < 6:
                 errores.append(f"Set {num_set}: el ganador debe llegar al menos a 6 games ({g1}-{g2}).")
-            elif max(g1, g2) == 6 and min(g1, g2) < 4:
-                pass  # válido: 6-0, 6-1, 6-2, 6-3, 6-4
             elif max(g1, g2) == 7 and min(g1, g2) not in (5, 6):
                 errores.append(f"Set {num_set}: marcador inválido ({g1}-{g2}). 7 games solo con 7-5 o 7-6.")
             elif max(g1, g2) > 7:
                 errores.append(f"Set {num_set}: máximo 7 games en sets normales ({g1}-{g2}).")
         else:
-            # Set 3: tie-break a 10, diferencia mínima de 2
             if g1 == g2:
                 errores.append(f"Set 3 (tie-break): no puede terminar empatado ({g1}-{g2}).")
             elif max(g1, g2) < 10:
                 errores.append(f"Set 3 (tie-break): el ganador debe llegar al menos a 10 puntos ({g1}-{g2}).")
-            elif max(g1, g2) == 10 and abs(g1 - g2) < 2:
-                errores.append(f"Set 3 (tie-break): se necesita diferencia de 2 puntos ({g1}-{g2}).")
-            elif max(g1, g2) > 10 and abs(g1 - g2) < 2:
+            elif abs(g1 - g2) < 2:
                 errores.append(f"Set 3 (tie-break): se necesita diferencia de 2 puntos ({g1}-{g2}).")
     return errores
 
@@ -109,19 +94,15 @@ def registrar_resultado(
 
     if tipo == "wo_j1":
         partido["resultado"] = {
-            "tipo": "wo",
-            "ganador": j1,
-            "puntos_ganador": PUNTOS_WO_FAVOR,
-            "puntos_perdedor": PUNTOS_WO_CONTRA,
+            "tipo": "wo", "ganador": j1,
+            "puntos_ganador": PUNTOS_WO_FAVOR, "puntos_perdedor": PUNTOS_WO_CONTRA,
             "nota_wo": nota_wo or "",
             "fecha_registro": datetime.now().isoformat(timespec="seconds"),
         }
     elif tipo == "wo_j2":
         partido["resultado"] = {
-            "tipo": "wo",
-            "ganador": j2,
-            "puntos_ganador": PUNTOS_WO_FAVOR,
-            "puntos_perdedor": PUNTOS_WO_CONTRA,
+            "tipo": "wo", "ganador": j2,
+            "puntos_ganador": PUNTOS_WO_FAVOR, "puntos_perdedor": PUNTOS_WO_CONTRA,
             "nota_wo": nota_wo or "",
             "fecha_registro": datetime.now().isoformat(timespec="seconds"),
         }
@@ -130,11 +111,8 @@ def registrar_resultado(
             raise ValueError("Se requieren los sets para un resultado normal.")
         ganador = _ganador_desde_sets(sets, j1, j2)
         partido["resultado"] = {
-            "tipo": "normal",
-            "ganador": ganador,
-            "sets": sets,
-            "puntos_ganador": PUNTOS_GANADO,
-            "puntos_perdedor": PUNTOS_PERDIDO,
+            "tipo": "normal", "ganador": ganador, "sets": sets,
+            "puntos_ganador": PUNTOS_GANADO, "puntos_perdedor": PUNTOS_PERDIDO,
             "fecha_registro": datetime.now().isoformat(timespec="seconds"),
         }
     else:
@@ -150,47 +128,29 @@ def borrar_resultado(historial: dict, partido_id: str) -> None:
     partido["resultado"] = None
 
 
-def registrar_no_jugado(
-    historial: dict,
-    partido_id: str,
-    justificacion: str,
-) -> dict:
-    """
-    Marca un partido como no jugado con una justificación.
-    Opciones: 'Sin acuerdo', 'Por enfermedad', 'Por lesión'
-    """
+def registrar_no_jugado(historial: dict, partido_id: str, justificacion: str) -> dict:
     JUSTIFICACIONES_VALIDAS = ["Sin acuerdo", "Por enfermedad", "Por lesión"]
     if justificacion not in JUSTIFICACIONES_VALIDAS:
         raise ValueError(f"Justificación inválida. Opciones: {JUSTIFICACIONES_VALIDAS}")
-
     partido = next((p for p in historial.get("partidos", []) if p["id"] == partido_id), None)
     if partido is None:
         raise ValueError(f"Partido {partido_id} no encontrado")
-
     partido["resultado"] = {
-        "tipo": "no_jugado",
-        "justificacion": justificacion,
+        "tipo": "no_jugado", "justificacion": justificacion,
         "fecha_registro": datetime.now().isoformat(timespec="seconds"),
     }
     return partido
 
 
 def inasistencias_consecutivas(historial: dict, nombre_jugador: str) -> int:
-    """
-    Cuenta cuántas inasistencias (no_jugado) consecutivas tiene un jugador
-    al final de su historial de partidos.
-    """
     partidos_jugador = [
         p for p in historial.get("partidos", [])
         if p["jugador_1"]["Jugador"] == nombre_jugador
         or p["jugador_2"]["Jugador"] == nombre_jugador
     ]
-    # Solo los que tienen resultado
     con_resultado = [p for p in partidos_jugador if p["resultado"] is not None]
     if not con_resultado:
         return 0
-
-    # Contar desde el final hacia atrás
     consecutivas = 0
     for p in reversed(con_resultado):
         if p["resultado"]["tipo"] == "no_jugado":
@@ -201,18 +161,11 @@ def inasistencias_consecutivas(historial: dict, nombre_jugador: str) -> int:
 
 
 def jugadores_a_desactivar(historial: dict, limite: int = 2) -> list[str]:
-    """
-    Retorna lista de jugadores con 'limite' o más inasistencias consecutivas.
-    """
     nombres = set()
     for p in historial.get("partidos", []):
         nombres.add(p["jugador_1"]["Jugador"])
         nombres.add(p["jugador_2"]["Jugador"])
-
-    return [
-        n for n in nombres
-        if inasistencias_consecutivas(historial, n) >= limite
-    ]
+    return [n for n in nombres if inasistencias_consecutivas(historial, n) >= limite]
 
 
 def partidos_pendientes(historial: dict) -> list[dict]:
@@ -225,15 +178,19 @@ def partidos_completados(historial: dict) -> list[dict]:
 
 def calcular_ranking(historial: dict, jugadores_base: list[dict]):
     """
-    Calcula el ranking acumulado.
-    Puntos totales = puntos_base (del Excel) + puntos nuevos (partidos jugados).
-    Desempate: 1° Puntos totales · 2° Performance · 3° Ranking inicial
+    Puntos totales = puntos_base + puntos nuevos.
+    Desempate: 1° Puntos · 2° Performance · 3° Ranking inicial.
+    Búsqueda flexible de nombres (tolera tildes y mayúsculas).
     """
     import pandas as pd
+    import unicodedata
+
+    def _norm(s):
+        return unicodedata.normalize("NFD", s.lower()).encode("ascii", "ignore").decode()
 
     stats = {}
-    # Mapa normalizado para buscar nombres sin importar tildes/mayúsculas
-    nombre_normalizado = {}
+    nombre_map = {}
+
     for j in jugadores_base:
         nombre = j["Jugador"]
         puntos_base = int(j.get("puntos_base") or j.get("Puntaje") or 0)
@@ -247,20 +204,12 @@ def calcular_ranking(historial: dict, jugadores_base: list[dict]):
             "Pts nuevos": 0,
             "Puntos": puntos_base,
         }
-        # Índice normalizado: lowercase sin tildes
-        import unicodedata
-        def _norm(s):
-            return unicodedata.normalize("NFD", s.lower()).encode("ascii","ignore").decode()
-        nombre_normalizado[_norm(nombre)] = nombre
+        nombre_map[_norm(nombre)] = nombre
 
-    def _buscar_nombre(nombre_raw):
-        """Busca el nombre en stats tolerando diferencias de tildes/mayúsculas."""
+    def _buscar(nombre_raw):
         if nombre_raw in stats:
             return nombre_raw
-        import unicodedata
-        def _norm(s):
-            return unicodedata.normalize("NFD", s.lower()).encode("ascii","ignore").decode()
-        return nombre_normalizado.get(_norm(nombre_raw))
+        return nombre_map.get(_norm(nombre_raw))
 
     for partido in historial.get("partidos", []):
         res = partido["resultado"]
@@ -268,15 +217,12 @@ def calcular_ranking(historial: dict, jugadores_base: list[dict]):
             continue
         if res["tipo"] == "no_jugado":
             continue
-        j1_raw = partido["jugador_1"]["Jugador"]
-        j2_raw = partido["jugador_2"]["Jugador"]
-        j1 = _buscar_nombre(j1_raw)
-        j2 = _buscar_nombre(j2_raw)
+        j1 = _buscar(partido["jugador_1"]["Jugador"])
+        j2 = _buscar(partido["jugador_2"]["Jugador"])
         if j1 is None or j2 is None:
             continue
 
-        ganador_raw = res["ganador"]
-        ganador = _buscar_nombre(ganador_raw) or ganador_raw
+        ganador = _buscar(res["ganador"]) or res["ganador"]
         perdedor = j2 if ganador == j1 else j1
 
         stats[j1]["PJ"] += 1
