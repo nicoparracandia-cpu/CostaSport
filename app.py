@@ -17,6 +17,9 @@ from pairing import (
     historial_a_json,
     resultados_a_dataframe,
 )
+import importlib
+import resultados as _resultados_mod
+importlib.reload(_resultados_mod)
 from resultados import (
     registrar_partidos_generados,
     registrar_resultado,
@@ -1727,4 +1730,3 @@ with tab_jugadores:
                     st.error(f"Error al agregar: {e}")
 
 render_footer()
-# redeploy Wed Jun 10 02:30:30 -04 2026
