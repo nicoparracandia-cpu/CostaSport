@@ -231,6 +231,8 @@ def calcular_ranking(historial: dict, jugadores_base: list[dict]):
     import pandas as pd
 
     stats = {}
+    # Mapa normalizado para buscar nombres sin importar tildes/mayúsculas
+    nombre_normalizado = {}
     for j in jugadores_base:
         nombre = j["Jugador"]
         puntos_base = int(j.get("puntos_base") or j.get("Puntaje") or 0)
@@ -244,20 +246,36 @@ def calcular_ranking(historial: dict, jugadores_base: list[dict]):
             "Pts nuevos": 0,
             "Puntos": puntos_base,
         }
+        # Índice normalizado: lowercase sin tildes
+        import unicodedata
+        def _norm(s):
+            return unicodedata.normalize("NFD", s.lower()).encode("ascii","ignore").decode()
+        nombre_normalizado[_norm(nombre)] = nombre
+
+    def _buscar_nombre(nombre_raw):
+        """Busca el nombre en stats tolerando diferencias de tildes/mayúsculas."""
+        if nombre_raw in stats:
+            return nombre_raw
+        import unicodedata
+        def _norm(s):
+            return unicodedata.normalize("NFD", s.lower()).encode("ascii","ignore").decode()
+        return nombre_normalizado.get(_norm(nombre_raw))
 
     for partido in historial.get("partidos", []):
         res = partido["resultado"]
         if res is None:
             continue
-        # Partidos no jugados no suman puntos
         if res["tipo"] == "no_jugado":
             continue
-        j1 = partido["jugador_1"]["Jugador"]
-        j2 = partido["jugador_2"]["Jugador"]
-        if j1 not in stats or j2 not in stats:
+        j1_raw = partido["jugador_1"]["Jugador"]
+        j2_raw = partido["jugador_2"]["Jugador"]
+        j1 = _buscar_nombre(j1_raw)
+        j2 = _buscar_nombre(j2_raw)
+        if j1 is None or j2 is None:
             continue
 
-        ganador = res["ganador"]
+        ganador_raw = res["ganador"]
+        ganador = _buscar_nombre(ganador_raw) or ganador_raw
         perdedor = j2 if ganador == j1 else j1
 
         stats[j1]["PJ"] += 1
