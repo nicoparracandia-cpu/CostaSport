@@ -751,6 +751,13 @@ with tab_ranking:
     if not partidos_completados(st.session_state.historial):
         st.info("Aún no hay resultados cargados. Ve a la pestaña **Cargar Resultados** primero.")
     else:
+        # DEBUG TEMPORAL
+        import inspect, resultados as _res_mod
+        src = inspect.getsource(_res_mod.calcular_ranking)
+        tiene_buscar = "_buscar" in src
+        tiene_norm = "nombre_map" in src
+        st.caption(f"DEBUG resultados.py — tiene _buscar: {tiene_buscar} | tiene nombre_map: {tiene_norm}")
+        # FIN DEBUG
         df_ranking = calcular_ranking(st.session_state.historial, jugadores)
 
         total_partidos = len(partidos_completados(st.session_state.historial))
