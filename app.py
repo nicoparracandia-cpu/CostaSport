@@ -752,11 +752,25 @@ with tab_ranking:
         st.info("Aún no hay resultados cargados. Ve a la pestaña **Cargar Resultados** primero.")
     else:
         # DEBUG TEMPORAL
-        import inspect, resultados as _res_mod
-        src = inspect.getsource(_res_mod.calcular_ranking)
-        tiene_buscar = "_buscar" in src
-        tiene_norm = "nombre_map" in src
-        st.caption(f"DEBUG resultados.py — tiene _buscar: {tiene_buscar} | tiene nombre_map: {tiene_norm}")
+        import unicodedata
+        def _norm(s):
+            return unicodedata.normalize("NFD", s.lower()).encode("ascii","ignore").decode()
+        nombres_bd = {_norm(j["Jugador"]): j["Jugador"] for j in jugadores}
+        saltados = []
+        for p in st.session_state.historial.get("partidos", []):
+            res = p.get("resultado")
+            if res is None or res.get("tipo") == "no_jugado":
+                continue
+            j1_raw = p["jugador_1"]["Jugador"]
+            j2_raw = p["jugador_2"]["Jugador"]
+            j1_found = j1_raw in {j["Jugador"] for j in jugadores} or _norm(j1_raw) in nombres_bd
+            j2_found = j2_raw in {j["Jugador"] for j in jugadores} or _norm(j2_raw) in nombres_bd
+            if not j1_found or not j2_found:
+                saltados.append(f"{p['id']}: j1='{j1_raw}'({'❌' if not j1_found else '✅'}) j2='{j2_raw}'({'❌' if not j2_found else '✅'})")
+        if saltados:
+            st.warning("Partidos saltados: " + " | ".join(saltados))
+        else:
+            st.caption("DEBUG: Ningún partido saltado ✅")
         # FIN DEBUG
         df_ranking = calcular_ranking(st.session_state.historial, jugadores)
 
