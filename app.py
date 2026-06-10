@@ -1630,6 +1630,8 @@ with tab_jugadores:
         if archivo_pts:
             try:
                 df_pts = pd.read_excel(archivo_pts, sheet_name=0)
+                # Limpiar espacios en nombres de columnas
+                df_pts.columns = [c.strip() for c in df_pts.columns]
                 cols_req = {"Jugador", "Puntaje", "Performance"}
                 if not cols_req.issubset(set(df_pts.columns)):
                     st.error(f"Columnas requeridas: {cols_req}. Encontradas: {list(df_pts.columns)}")
