@@ -1727,3 +1727,4 @@ with tab_jugadores:
                     st.error(f"Error al agregar: {e}")
 
 render_footer()
+# redeploy Wed Jun 10 02:30:30 -04 2026
