@@ -22,6 +22,7 @@ import resultados as _resultados_mod
 importlib.reload(_resultados_mod)
 from resultados import (
     registrar_partidos_generados,
+    deshacer_ultima_jornada,
     registrar_resultado,
     borrar_resultado,
     registrar_no_jugado,
@@ -418,6 +419,29 @@ with tab_ronda:
                 st.session_state.ultima_ronda = resultados
                 guardar_historial(st.session_state.historial)
                 st.success(f"✅ Se generaron {nuevos} partidos nuevos. Guardado en base de datos.")
+
+            # --- Deshacer última jornada (confirmación en 2 pasos) ---
+            if st.session_state.historial.get("partidos"):
+                if not st.session_state.get("confirmar_deshacer"):
+                    if st.button("↩️ Deshacer último sorteo", use_container_width=True):
+                        st.session_state.confirmar_deshacer = True
+                        st.rerun()
+                else:
+                    st.warning("⚠️ Se eliminarán los partidos de la última jornada generada.")
+                    c_si, c_no = st.columns(2)
+                    if c_si.button("✅ Sí, deshacer", use_container_width=True):
+                        ok, msg = deshacer_ultima_jornada(st.session_state.historial)
+                        st.session_state.confirmar_deshacer = False
+                        if ok:
+                            st.session_state.ultima_ronda = None
+                            guardar_historial(st.session_state.historial)
+                            st.success(msg)
+                        else:
+                            st.error(msg)
+                        st.rerun()
+                    if c_no.button("❌ Cancelar", use_container_width=True):
+                        st.session_state.confirmar_deshacer = False
+                        st.rerun()
         else:
             st.info("🔐 Solo el administrador puede generar rondas.")
 

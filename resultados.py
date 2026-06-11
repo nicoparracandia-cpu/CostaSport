@@ -261,3 +261,64 @@ def formatear_marcador(resultado: dict) -> str:
         return f"No jugado — {resultado.get('justificacion', '')}"
     sets = resultado["sets"]
     return " · ".join(f"{s['games_1']}-{s['games_2']}" for s in sets)
+
+
+def deshacer_ultima_jornada(historial: dict) -> tuple[bool, str]:
+    """
+    Revierte la última jornada generada (sorteo):
+    - Elimina los partidos de la última generación (mismo fecha_generado).
+    - Retrocede los contadores de ronda/ciclo de cada bloque.
+    - Quita los pares del registro anti-repetición ('pares_cruce').
+
+    No permite deshacer si algún partido de esa jornada ya tiene resultado.
+    Retorna (exito, mensaje).
+    """
+    partidos = historial.get("partidos", [])
+    if not partidos:
+        return False, "No hay partidos para deshacer."
+
+    ultima_fecha = max(p["fecha_generado"] for p in partidos)
+    de_la_jornada = [p for p in partidos if p["fecha_generado"] == ultima_fecha]
+
+    con_resultado = [p for p in de_la_jornada if p.get("resultado") is not None]
+    if con_resultado:
+        return False, (f"No se puede deshacer: {len(con_resultado)} partido(s) de la "
+                       f"última jornada ya tienen resultado registrado. "
+                       f"Borra esos resultados primero.")
+
+    # 1) Retroceder contadores de ronda por bloque
+    bloques_vistos = set()
+    for p in de_la_jornada:
+        seccion = "internas" if p["tipo"] == "Interno" else "cruces"
+        bloque = p["bloque"]
+        if (seccion, bloque) in bloques_vistos:
+            continue
+        bloques_vistos.add((seccion, bloque))
+        estado = historial.get(seccion, {}).get(bloque)
+        if not estado:
+            continue
+        ronda = p["ronda_bloque"]   # ronda que se generó (1-based)
+        ciclo = p["ciclo_bloque"]
+        total = estado.get("total_rondas", ronda)
+        if ronda <= 1 and ciclo > 1:
+            # La generación había iniciado un ciclo nuevo: volver al final del anterior
+            historial[seccion][bloque] = {"ronda_actual": total, "ciclo": ciclo - 1,
+                                          "total_rondas": total}
+        else:
+            historial[seccion][bloque] = {"ronda_actual": ronda - 1, "ciclo": ciclo,
+                                          "total_rondas": total}
+
+    # 2) Quitar pares del registro anti-repetición (una ocurrencia por partido)
+    registro = historial.get("pares_cruce", {})
+    for p in de_la_jornada:
+        if p["tipo"] != "Cruzado":
+            continue
+        par = sorted((p["jugador_1"]["Jugador"], p["jugador_2"]["Jugador"]))
+        lista = registro.get(p["bloque"], [])
+        if par in lista:
+            lista.remove(par)
+
+    # 3) Eliminar los partidos de la jornada
+    historial["partidos"] = [p for p in partidos if p["fecha_generado"] != ultima_fecha]
+
+    return True, f"Se deshizo la última jornada: {len(de_la_jornada)} partidos eliminados."

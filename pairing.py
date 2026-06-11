@@ -160,15 +160,38 @@ def _avanzar_estado(historial: dict, seccion: str, bloque: str, total: int) -> t
     return idx, ciclo
 
 
+def _reconstruir_pares_cruce(historial: dict) -> None:
+    """
+    Si el historial aún no tiene registro anti-repetición ('pares_cruce'),
+    lo reconstruye a partir de los partidos cruzados ya generados.
+    Así las jornadas previas al cambio de lógica también cuentan
+    y no se repiten cruces ya jugados.
+    """
+    if "pares_cruce" in historial:
+        return
+    registro: dict[str, list] = {}
+    for p in historial.get("partidos", []):
+        if p.get("tipo") != "Cruzado":
+            continue
+        bloque = p.get("bloque", "")
+        par = sorted((p["jugador_1"]["Jugador"], p["jugador_2"]["Jugador"]))
+        registro.setdefault(bloque, []).append(par)
+    historial["pares_cruce"] = registro
+
+
 def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict) -> list[dict]:
     """
     Genera una ronda completa: internos para cada categoría + cruces entre pares (A-B, C-D, ...).
     """
+    _reconstruir_pares_cruce(historial)
     resultados = []
     nombres = list(categorias.keys())
 
     # --- Internos ---
-    ultima_categoria = nombres[-1]  # última categoría (ej: D) recibe trato especial si es impar
+    # Si una categoría es impar, el jugador que queda libre del interno
+    # se guarda aquí para asignarle un partido extra en el cruce.
+    libres_interno: dict[str, dict] = {}
+
     for nombre in nombres:
         jugadores = categorias[nombre]
         if len(jugadores) < 2:
@@ -176,49 +199,32 @@ def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict)
         todas = generar_todas_las_rondas_internas(jugadores)
         total = len(todas)
         idx, ciclo = _avanzar_estado(historial, "internas", nombre, total)
-        es_impar = len(jugadores) % 2 == 1
-        es_ultima = nombre == ultima_categoria
 
-        if es_impar and es_ultima:
-            # Última categoría impar: nadie descansa, el que tocaba descansar juega extra
-            parejas = generar_ronda_interna_sin_descanso(jugadores, idx)
-            # Detectar quién juega doble (aparece en más de una pareja)
-            from collections import Counter
-            conteo = Counter(j["Jugador"] for par in parejas for j in par)
-            juega_doble = [nombre for nombre, cnt in conteo.items() if cnt > 1]
-            nota = f"⚠️ {', '.join(juega_doble)} juega 2 partidos esta ronda (sin descanso)." if juega_doble else ""
-            resultados.append({
-                "tipo": "Interno",
-                "bloque": nombre,
-                "ronda": idx + 1,
-                "total_rondas": total,
-                "ciclo": ciclo,
-                "parejas": parejas,
-                "descansan": [],
-                "nota": nota,
-            })
-        else:
-            # Categorías pares o no-últimas: round-robin normal
-            ronda = todas[idx]
-            parejas = []
-            descansa = None
-            for p1, p2 in ronda:
-                if p1 is None:
-                    descansa = p2
-                elif p2 is None:
-                    descansa = p1
-                else:
-                    parejas.append((p1, p2))
-            resultados.append({
-                "tipo": "Interno",
-                "bloque": nombre,
-                "ronda": idx + 1,
-                "total_rondas": total,
-                "ciclo": ciclo,
-                "parejas": parejas,
-                "descansan": [descansa] if descansa else [],
-                "nota": "",
-            })
+        # Round-robin normal: si la categoría es impar, uno queda libre
+        ronda = todas[idx]
+        parejas = []
+        libre = None
+        for p1, p2 in ronda:
+            if p1 is None:
+                libre = p2
+            elif p2 is None:
+                libre = p1
+            else:
+                parejas.append((p1, p2))
+
+        if libre is not None:
+            libres_interno[nombre] = libre
+
+        resultados.append({
+            "tipo": "Interno",
+            "bloque": nombre,
+            "ronda": idx + 1,
+            "total_rondas": total,
+            "ciclo": ciclo,
+            "parejas": parejas,
+            "descansan": [],
+            "nota": f"ℹ️ {libre['Jugador']} no tiene interno: jugará 2 cruces." if libre else "",
+        })
 
     # --- Cruces (A-B, C-D, ...) ---
     for i in range(0, len(nombres), 2):
@@ -229,19 +235,120 @@ def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict)
         if not grupo_x or not grupo_y:
             continue
         total = max(len(grupo_x), len(grupo_y))
-        idx, ciclo = _avanzar_estado(historial, "cruces", f"{nombre_x}-{nombre_y}", total)
-        parejas, descansan, _ = cruce_para_ronda(grupo_x, grupo_y, idx)
+        bloque = f"{nombre_x}-{nombre_y}"
+        idx, ciclo = _avanzar_estado(historial, "cruces", bloque, total)
+
+        libre_x = libres_interno.pop(nombre_x, None)
+        libre_y = libres_interno.pop(nombre_y, None)
+
+        registro = historial.setdefault("pares_cruce", {})
+        jugados = registro.setdefault(bloque, [])
+
+        parejas, jugados = _matching_cruce(grupo_x, grupo_y, libre_x, libre_y, jugados)
+        registro[bloque] = jugados
+
+        notas = []
+        for libre in (libre_x, libre_y):
+            if libre is not None:
+                rivales = [p2["Jugador"] if p1["Jugador"] == libre["Jugador"] else p1["Jugador"]
+                           for p1, p2 in parejas
+                           if libre["Jugador"] in (p1["Jugador"], p2["Jugador"])]
+                if len(rivales) > 1:
+                    notas.append(f"⚡ {libre['Jugador']} juega 2 cruces ({' y '.join(rivales)}).")
+
         resultados.append({
             "tipo": "Cruzado",
-            "bloque": f"{nombre_x}-{nombre_y}",
+            "bloque": bloque,
             "ronda": idx + 1,
             "total_rondas": total,
             "ciclo": ciclo,
             "parejas": parejas,
-            "descansan": descansan,
+            "descansan": [],
+            "nota": " ".join(notas),
         })
 
     return resultados
+
+
+def _matching_cruce(grupo_x: list[dict], grupo_y: list[dict],
+                    libre_x: dict | None, libre_y: dict | None,
+                    jugados_lista: list) -> tuple[list, list]:
+    """
+    Construye los cruces de una jornada garantizando:
+    - Cada jugador juega exactamente 1 cruce; el 'libre' del interno
+      (categoria impar) juega 2 cruces.
+    - Prioriza pares nunca jugados. Si es imposible (rivales agotados),
+      permite la repeticion MINIMA necesaria (pares jugados menos veces),
+      sin borrar nunca el historial.
+
+    jugados_lista: lista de pares [j1, j2] jugados (con duplicados = contador).
+    """
+    from collections import Counter
+
+    def construir_slots(grupo, libre):
+        slots = []
+        for j in grupo:
+            n = 2 if (libre is not None and j["Jugador"] == libre["Jugador"]) else 1
+            slots.extend([j] * n)
+        return slots
+
+    slots_x = construir_slots(grupo_x, libre_x)
+    slots_y = construir_slots(grupo_y, libre_y)
+
+    if len(slots_x) != len(slots_y):
+        minimo = min(len(slots_x), len(slots_y))
+        slots_x, slots_y = slots_x[:minimo], slots_y[:minimo]
+
+    def clave(a, b):
+        return tuple(sorted((a["Jugador"], b["Jugador"])))
+
+    veces = Counter(tuple(sorted(p)) for p in jugados_lista)
+
+    def resolver(umbral):
+        """Solo permite pares jugados menos de 'umbral' veces."""
+        n = len(slots_x)
+        usados_y = [False] * n
+        asignacion = [None] * n
+
+        def backtrack(i, pares_jornada):
+            if i == n:
+                return True
+            x = slots_x[i]
+            # Probar primero los rivales menos jugados (minimiza repeticiones)
+            orden = sorted(range(n), key=lambda k: veces.get(clave(x, slots_y[k]), 0))
+            for k in orden:
+                if usados_y[k]:
+                    continue
+                y = slots_y[k]
+                c = clave(x, y)
+                if veces.get(c, 0) >= umbral or c in pares_jornada:
+                    continue
+                usados_y[k] = True
+                asignacion[i] = y
+                pares_jornada.add(c)
+                if backtrack(i + 1, pares_jornada):
+                    return True
+                usados_y[k] = False
+                asignacion[i] = None
+                pares_jornada.discard(c)
+            return False
+
+        if backtrack(0, set()):
+            return [(slots_x[i], asignacion[i]) for i in range(n)]
+        return None
+
+    parejas = None
+    for umbral in range(1, 10):  # 1 = solo pares nunca jugados
+        parejas = resolver(umbral)
+        if parejas is not None:
+            break
+    if parejas is None:
+        return [], jugados_lista
+
+    for p1, p2 in parejas:
+        jugados_lista.append(list(clave(p1, p2)))
+    return parejas, jugados_lista
+
 
 
 # ============================================================================
