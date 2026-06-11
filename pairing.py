@@ -21,19 +21,50 @@ NUM_CATEGORIAS = 4
 
 def dividir_en_categorias(jugadores: list[dict], n_categorias: int = NUM_CATEGORIAS) -> dict[str, list[dict]]:
     """
-    Divide los jugadores en N categorías. Las primeras (mejor ranking) llenan primero.
+    Divide los jugadores en N categorías por ranking (las mejores primero).
 
-    Ej: 46 jugadores, 4 categorías → A=12, B=12, C=11, D=11.
+    Regla de paridad:
+    - Total PAR  → todas las categorías quedan con tamaño par
+      (jornadas perfectas, sin partidos especiales).
+    - Total IMPAR → la ÚNICA categoría impar es la última (D), donde está
+      el último jugador del ranking (el "ancla" que juega 2 internos).
+
+    Ej: 39 → A=10, B=10, C=10, D=9 · 41 → A=10, B=10, C=10, D=11
+        40 → 10/10/10/10 · 42 → A=12, B=10, C=10, D=10
     """
     jugadores_ordenados = sorted(jugadores, key=lambda p: p["Ranking"])
     n = len(jugadores_ordenados)
-    base = n // n_categorias
-    resto = n % n_categorias
+
+    if n % 2 == 1:
+        # Última categoría impar, lo más cercana al promedio
+        prom = n / n_categorias
+        ultima = round(prom)
+        if ultima % 2 == 0:
+            ultima += 1 if prom >= ultima else -1
+        ultima = max(1, ultima)
+        resto_total = n - ultima
+    else:
+        ultima = None
+        resto_total = n
+
+    # Repartir el resto en (n_categorias - 1 si hay impar, si no n_categorias)
+    # tamaños PARES y balanceados, dando los extras a las primeras categorías
+    n_pares = n_categorias - (1 if ultima is not None else 0)
+    base = (resto_total // n_pares)
+    if base % 2 == 1:
+        base -= 1
+    sobra = resto_total - base * n_pares  # múltiplo de 2
+    tamanos = []
+    for i in range(n_pares):
+        extra = 2 if sobra > 0 else 0
+        sobra -= extra
+        tamanos.append(base + extra)
+    if ultima is not None:
+        tamanos.append(ultima)
 
     categorias = {}
     idx = 0
-    for i in range(n_categorias):
-        tamano = base + (1 if i < resto else 0)
+    for i, tamano in enumerate(tamanos):
         nombre = chr(65 + i)
         categorias[nombre] = jugadores_ordenados[idx:idx + tamano]
         idx += tamano
@@ -160,60 +191,150 @@ def _avanzar_estado(historial: dict, seccion: str, bloque: str, total: int) -> t
     return idx, ciclo
 
 
-def _reconstruir_pares_cruce(historial: dict) -> None:
-    """
-    Si el historial aún no tiene registro anti-repetición ('pares_cruce'),
-    lo reconstruye a partir de los partidos cruzados ya generados.
-    Así las jornadas previas al cambio de lógica también cuentan
-    y no se repiten cruces ya jugados.
-    """
-    if "pares_cruce" in historial:
-        return
-    registro: dict[str, list] = {}
+def _contador_pares(historial: dict):
+    """Cuenta cuántas veces se ha enfrentado cada par, según los partidos
+    ya generados. Fuente única de verdad: historial['partidos']."""
+    from collections import Counter
+    c = Counter()
     for p in historial.get("partidos", []):
-        if p.get("tipo") != "Cruzado":
-            continue
-        bloque = p.get("bloque", "")
-        par = sorted((p["jugador_1"]["Jugador"], p["jugador_2"]["Jugador"]))
-        registro.setdefault(bloque, []).append(par)
-    historial["pares_cruce"] = registro
+        c[tuple(sorted((p["jugador_1"]["Jugador"], p["jugador_2"]["Jugador"])))] += 1
+    return c
+
+
+def _clave(a: dict, b: dict) -> tuple:
+    return tuple(sorted((a["Jugador"], b["Jugador"])))
+
+
+def _emparejar_grupo(grupo: list[dict], veces) -> list[tuple]:
+    """Empareja un grupo PAR entre sí, minimizando repeticiones
+    (prefiere pares jugados menos veces). Backtracking con relajación."""
+    n = len(grupo)
+    if n == 0:
+        return []
+
+    def resolver(umbral):
+        usados = [False] * n
+        resultado = []
+
+        def backtrack(restantes):
+            if not restantes:
+                return True
+            i = restantes[0]
+            orden = sorted(restantes[1:], key=lambda k: veces.get(_clave(grupo[i], grupo[k]), 0))
+            for k in orden:
+                if veces.get(_clave(grupo[i], grupo[k]), 0) >= umbral:
+                    continue
+                resultado.append((grupo[i], grupo[k]))
+                if backtrack([r for r in restantes[1:] if r != k]):
+                    return True
+                resultado.pop()
+            return False
+
+        if backtrack(list(range(n))):
+            return list(resultado)
+        return None
+
+    for umbral in range(1, 20):
+        sol = resolver(umbral)
+        if sol is not None:
+            return sol
+    return []
+
+
+def _emparejar_cruzado(grupo_x: list[dict], grupo_y: list[dict], veces) -> list[tuple]:
+    """Empareja dos grupos del MISMO tamaño 1 a 1, minimizando
+    repeticiones. Backtracking con relajación de umbral."""
+    n = len(grupo_x)
+    if n == 0:
+        return []
+
+    def resolver(umbral):
+        usados = [False] * n
+        asignacion = [None] * n
+
+        def backtrack(i):
+            if i == n:
+                return True
+            x = grupo_x[i]
+            orden = sorted(range(n), key=lambda k: veces.get(_clave(x, grupo_y[k]), 0))
+            for k in orden:
+                if usados[k]:
+                    continue
+                if veces.get(_clave(x, grupo_y[k]), 0) >= umbral:
+                    continue
+                usados[k] = True
+                asignacion[i] = grupo_y[k]
+                if backtrack(i + 1):
+                    return True
+                usados[k] = False
+                asignacion[i] = None
+            return False
+
+        if backtrack(0):
+            return [(grupo_x[i], asignacion[i]) for i in range(n)]
+        return None
+
+    for umbral in range(1, 20):
+        sol = resolver(umbral)
+        if sol is not None:
+            return sol
+    return []
 
 
 def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict) -> list[dict]:
     """
-    Genera una ronda completa: internos para cada categoría + cruces entre pares (A-B, C-D, ...).
+    Genera la jornada: partidos internos + cruzados.
+
+    Reglas:
+    - Todos los jugadores quedan con EXACTAMENTE 2 partidos. Nadie descansa.
+    - Si una categoría es impar, su ÚLTIMO jugador del ranking (el "ancla")
+      juega sus 2 partidos como internos contra 2 compañeros de categoría.
+      Esos 2 rivales no juegan el interno normal (completan con su cruce).
+    - El ancla no participa del cruce; si por eso el cruce queda desparejo,
+      los sobrantes del grupo mayor juegan entre sí.
+    - Anti-repetición: se priorizan SIEMPRE los pares jugados menos veces
+      (calculado desde el historial real de partidos).
     """
-    _reconstruir_pares_cruce(historial)
+    veces = _contador_pares(historial)
     resultados = []
     nombres = list(categorias.keys())
+    participa_cruce: dict[str, list] = {}
 
     # --- Internos ---
-    # Si una categoría es impar, el jugador que queda libre del interno
-    # se guarda aquí para asignarle un partido extra en el cruce.
-    libres_interno: dict[str, dict] = {}
-
     for nombre in nombres:
         jugadores = categorias[nombre]
         if len(jugadores) < 2:
+            participa_cruce[nombre] = list(jugadores)
             continue
         todas = generar_todas_las_rondas_internas(jugadores)
         total = len(todas)
         idx, ciclo = _avanzar_estado(historial, "internas", nombre, total)
+        nota = ""
 
-        # Round-robin normal: si la categoría es impar, uno queda libre
-        ronda = todas[idx]
-        parejas = []
-        libre = None
-        for p1, p2 in ronda:
-            if p1 is None:
-                libre = p2
-            elif p2 is None:
-                libre = p1
-            else:
-                parejas.append((p1, p2))
+        if len(jugadores) % 2 == 0:
+            # Categoría par: round-robin clásico, sin repeticiones por ciclo
+            ronda = todas[idx]
+            parejas = [(p1, p2) for p1, p2 in ronda if p1 is not None and p2 is not None]
+            participa_cruce[nombre] = list(jugadores)
+        else:
+            # Categoría impar: el ÚLTIMO del ranking es el ancla
+            ancla = jugadores[-1]
+            otros = jugadores[:-1]
+            # Sus 2 rivales: los compañeros que MENOS veces ha enfrentado
+            rivales = sorted(
+                otros,
+                key=lambda j: (veces.get(_clave(ancla, j), 0), j["Ranking"]),
+            )[:2]
+            resto = [j for j in otros if j["Jugador"] not in {r["Jugador"] for r in rivales}]
+            parejas = [(ancla, rivales[0]), (ancla, rivales[1])]
+            parejas += _emparejar_grupo(resto, veces)
+            participa_cruce[nombre] = otros  # todos menos el ancla
+            nota = (f"⚓ {ancla['Jugador']} juega sus 2 partidos internos contra "
+                    f"{rivales[0]['Jugador']} y {rivales[1]['Jugador']} "
+                    f"(ellos completan su jornada con el cruce).")
 
-        if libre is not None:
-            libres_interno[nombre] = libre
+        for p1, p2 in parejas:
+            veces[_clave(p1, p2)] += 1
 
         resultados.append({
             "tipo": "Interno",
@@ -223,7 +344,7 @@ def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict)
             "ciclo": ciclo,
             "parejas": parejas,
             "descansan": [],
-            "nota": f"ℹ️ {libre['Jugador']} no tiene interno: jugará 2 cruces." if libre else "",
+            "nota": nota,
         })
 
     # --- Cruces (A-B, C-D, ...) ---
@@ -231,30 +352,47 @@ def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict)
         if i + 1 >= len(nombres):
             break
         nombre_x, nombre_y = nombres[i], nombres[i + 1]
-        grupo_x, grupo_y = categorias[nombre_x], categorias[nombre_y]
-        if not grupo_x or not grupo_y:
+        gx = list(participa_cruce.get(nombre_x, []))
+        gy = list(participa_cruce.get(nombre_y, []))
+        if not gx or not gy:
             continue
-        total = max(len(grupo_x), len(grupo_y))
+        total = max(len(categorias[nombre_x]), len(categorias[nombre_y]))
         bloque = f"{nombre_x}-{nombre_y}"
         idx, ciclo = _avanzar_estado(historial, "cruces", bloque, total)
-
-        libre_x = libres_interno.pop(nombre_x, None)
-        libre_y = libres_interno.pop(nombre_y, None)
-
-        registro = historial.setdefault("pares_cruce", {})
-        jugados = registro.setdefault(bloque, [])
-
-        parejas, jugados = _matching_cruce(grupo_x, grupo_y, libre_x, libre_y, jugados)
-        registro[bloque] = jugados
-
         notas = []
-        for libre in (libre_x, libre_y):
-            if libre is not None:
-                rivales = [p2["Jugador"] if p1["Jugador"] == libre["Jugador"] else p1["Jugador"]
-                           for p1, p2 in parejas
-                           if libre["Jugador"] in (p1["Jugador"], p2["Jugador"])]
-                if len(rivales) > 1:
-                    notas.append(f"⚡ {libre['Jugador']} juega 2 cruces ({' y '.join(rivales)}).")
+
+        # Balancear: los sobrantes del grupo mayor juegan entre sí
+        parejas_sobrantes = []
+        if len(gx) != len(gy):
+            mayor, menor = (gx, gy) if len(gx) > len(gy) else (gy, gx)
+            d = len(mayor) - len(menor)  # siempre par
+            # Elegir los d sobrantes cuyo emparejamiento mutuo esté menos repetido
+            import itertools
+            mejor = None
+            for combo in itertools.combinations(range(len(mayor)), d):
+                cand = [mayor[c] for c in combo]
+                pares = _emparejar_grupo(cand, veces)
+                costo = sum(veces.get(_clave(p1, p2), 0) for p1, p2 in pares)
+                if mejor is None or costo < mejor[0]:
+                    mejor = (costo, combo, pares)
+                if mejor[0] == 0:
+                    break
+            _, combo, parejas_sobrantes = mejor
+            sobrantes_nombres = {mayor[c]["Jugador"] for c in combo}
+            mayor_filtrado = [j for j in mayor if j["Jugador"] not in sobrantes_nombres]
+            if len(gx) > len(gy):
+                gx = mayor_filtrado
+            else:
+                gy = mayor_filtrado
+            for p1, p2 in parejas_sobrantes:
+                notas.append(f"🔁 {p1['Jugador']} y {p2['Jugador']} juegan entre sí "
+                             f"(sin rival de cruce esta jornada).")
+
+        parejas = _emparejar_cruzado(gx, gy, veces)
+        parejas += parejas_sobrantes
+
+        for p1, p2 in parejas:
+            veces[_clave(p1, p2)] += 1
 
         resultados.append({
             "tipo": "Cruzado",
@@ -269,91 +407,6 @@ def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict)
 
     return resultados
 
-
-def _matching_cruce(grupo_x: list[dict], grupo_y: list[dict],
-                    libre_x: dict | None, libre_y: dict | None,
-                    jugados_lista: list) -> tuple[list, list]:
-    """
-    Construye los cruces de una jornada garantizando:
-    - Cada jugador juega exactamente 1 cruce; el 'libre' del interno
-      (categoria impar) juega 2 cruces.
-    - Prioriza pares nunca jugados. Si es imposible (rivales agotados),
-      permite la repeticion MINIMA necesaria (pares jugados menos veces),
-      sin borrar nunca el historial.
-
-    jugados_lista: lista de pares [j1, j2] jugados (con duplicados = contador).
-    """
-    from collections import Counter
-
-    def construir_slots(grupo, libre):
-        slots = []
-        for j in grupo:
-            n = 2 if (libre is not None and j["Jugador"] == libre["Jugador"]) else 1
-            slots.extend([j] * n)
-        return slots
-
-    slots_x = construir_slots(grupo_x, libre_x)
-    slots_y = construir_slots(grupo_y, libre_y)
-
-    if len(slots_x) != len(slots_y):
-        minimo = min(len(slots_x), len(slots_y))
-        slots_x, slots_y = slots_x[:minimo], slots_y[:minimo]
-
-    def clave(a, b):
-        return tuple(sorted((a["Jugador"], b["Jugador"])))
-
-    veces = Counter(tuple(sorted(p)) for p in jugados_lista)
-
-    def resolver(umbral):
-        """Solo permite pares jugados menos de 'umbral' veces."""
-        n = len(slots_x)
-        usados_y = [False] * n
-        asignacion = [None] * n
-
-        def backtrack(i, pares_jornada):
-            if i == n:
-                return True
-            x = slots_x[i]
-            # Probar primero los rivales menos jugados (minimiza repeticiones)
-            orden = sorted(range(n), key=lambda k: veces.get(clave(x, slots_y[k]), 0))
-            for k in orden:
-                if usados_y[k]:
-                    continue
-                y = slots_y[k]
-                c = clave(x, y)
-                if veces.get(c, 0) >= umbral or c in pares_jornada:
-                    continue
-                usados_y[k] = True
-                asignacion[i] = y
-                pares_jornada.add(c)
-                if backtrack(i + 1, pares_jornada):
-                    return True
-                usados_y[k] = False
-                asignacion[i] = None
-                pares_jornada.discard(c)
-            return False
-
-        if backtrack(0, set()):
-            return [(slots_x[i], asignacion[i]) for i in range(n)]
-        return None
-
-    parejas = None
-    for umbral in range(1, 10):  # 1 = solo pares nunca jugados
-        parejas = resolver(umbral)
-        if parejas is not None:
-            break
-    if parejas is None:
-        return [], jugados_lista
-
-    for p1, p2 in parejas:
-        jugados_lista.append(list(clave(p1, p2)))
-    return parejas, jugados_lista
-
-
-
-# ============================================================================
-#  Historial I/O
-# ============================================================================
 
 def cargar_historial(ruta) -> dict:
     ruta = Path(ruta)
