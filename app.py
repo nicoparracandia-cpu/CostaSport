@@ -190,7 +190,16 @@ def render_footer():
 # ============================================================================
 if "historial" not in st.session_state:
     with st.spinner("Cargando historial..."):
-        st.session_state.historial = cargar_historial()
+        historial = cargar_historial()
+    if historial is None:
+        st.warning(
+            "🎾 La base de datos está despertando (Supabase pausa los proyectos "
+            "gratuitos tras días sin uso). Espera 2-3 minutos y recarga la página."
+        )
+        if st.button("Reintentar"):
+            st.rerun()
+        st.stop()
+    st.session_state.historial = historial
 
 if "ultima_ronda" not in st.session_state:
     st.session_state.ultima_ronda = None

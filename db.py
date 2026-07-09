@@ -9,6 +9,7 @@ Tablas en Supabase:
 """
 from __future__ import annotations
 import json
+import httpx
 import streamlit as st
 from supabase import create_client
 
@@ -75,7 +76,10 @@ HISTORIAL_ID = 1
 def cargar_historial() -> dict:
     """Carga el historial desde Supabase."""
     sb = get_supabase()
-    resp = sb.table("historial").select("data").eq("id", HISTORIAL_ID).execute()
+    try:
+        resp = sb.table("historial").select("data").eq("id", HISTORIAL_ID).execute()
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+        return None
     if resp.data:
         return json.loads(resp.data[0]["data"])
     return {}
