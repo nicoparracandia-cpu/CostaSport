@@ -61,6 +61,7 @@ from db import (
     get_jugador_by_nombre,
     guardar_caracteristicas,
 )
+import importar_whatsapp
 
 # ============================================================================
 #  Configuración + Branding
@@ -382,13 +383,14 @@ categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
 # ============================================================================
 #  Pestañas
 # ============================================================================
-tab_ronda, tab_resultados, tab_ranking, tab_perfiles, tab_torneos, tab_jugadores = st.tabs([
+tab_ronda, tab_resultados, tab_ranking, tab_perfiles, tab_torneos, tab_jugadores, tab_whatsapp = st.tabs([
     "🎯 Generar Ronda",
     "📝 Cargar Resultados",
     "🏆 Ranking",
     "👤 Perfiles",
     "🏅 Torneos",
     "⚙️ Jugadores",
+    "💬 WhatsApp",
 ])
 
 # ----------------------------------------------------------------------------
@@ -1764,5 +1766,15 @@ with tab_jugadores:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al agregar: {e}")
+
+# ----------------------------------------------------------------------------
+#  TAB 7: Importar desde WhatsApp
+# ----------------------------------------------------------------------------
+with tab_whatsapp:
+    if not st.session_state.es_admin:
+        st.warning("🔐 Esta sección es solo para administradores. Ingresa con tu contraseña en el panel lateral.")
+    else:
+        nombres = [j["nombre"] for j in get_todos_jugadores()]
+        importar_whatsapp.render(jugadores=nombres)
 
 render_footer()
