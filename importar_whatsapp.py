@@ -146,6 +146,20 @@ def normalizar_autor(autor: str, jugadores: list[str]) -> str:
     return res[0] if res else autor
 
 
+def _parse_fecha(fecha: str):
+    """Convierte la fecha del export de WhatsApp a date. Soporta d/m/Y, d-m-Y,
+    con año de 2 o 4 dígitos. Devuelve None si no se puede parsear."""
+    from datetime import datetime
+    fecha = fecha.strip()
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y",
+                "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(fecha, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 # ---------------------------------------------------------------------------
 # UI  -> llamar desde app.py: importar_whatsapp.render()
 # ---------------------------------------------------------------------------
@@ -183,8 +197,8 @@ def render(jugadores: list[str] | None = None):
         reporta = normalizar_autor(m["autor"], jugadores)
         rival = match_jugador(m["mensaje"], jugadores, excluir=reporta)
         filas.append({
-            "incluir": True,
             "fecha": m["fecha"],
+            "_fecha_dt": _parse_fecha(m["fecha"]),
             "reporta": reporta,
             "rival": rival,
             "marcador": marcador,
@@ -197,6 +211,56 @@ def render(jugadores: list[str] | None = None):
 
     st.write(f"**{len(filas)} posibles resultados** — corrige y desmarca los que no correspondan.")
 
+    # --- Selección masiva: filtro por fecha + marcar/desmarcar todos ---
+    fechas = [f["_fecha_dt"] for f in filas if f["_fecha_dt"]]
+    fmin = min(fechas) if fechas else None
+    fmax = max(fechas) if fechas else None
+
+    ss = st.session_state
+    ss.setdefault("wa_key", 0)          # fuerza recarga del editor
+    ss.setdefault("wa_override", None)  # None=usar fecha, True=todos, False=ninguno
+    ss.setdefault("wa_corte_prev", fmax)
+
+    c1, c2, c3 = st.columns([2, 1, 1])
+    if fmin and fmax:
+        corte = c1.date_input(
+            "Marcar solo resultados desde",
+            value=ss.wa_corte_prev or fmax,
+            min_value=fmin, max_value=fmax,
+            key="wa_corte",
+            help="Los anteriores a esta fecha quedan desmarcados (los que ya tienes cargados).",
+        )
+    else:
+        corte = None
+    if c2.button("☑️ Marcar todos", use_container_width=True, key="wa_all"):
+        ss.wa_override = True
+        ss.wa_key += 1
+    if c3.button("☐ Desmarcar todos", use_container_width=True, key="wa_none"):
+        ss.wa_override = False
+        ss.wa_key += 1
+    # si cambia la fecha de corte, volver al modo "por fecha" y recargar
+    if corte != ss.wa_corte_prev:
+        ss.wa_override = None
+        ss.wa_corte_prev = corte
+        ss.wa_key += 1
+
+    # calcular el valor inicial de cada checkbox según el modo activo
+    for f in filas:
+        if ss.wa_override is True:
+            f["incluir"] = True
+        elif ss.wa_override is False:
+            f["incluir"] = False
+        elif corte and f["_fecha_dt"]:
+            f["incluir"] = f["_fecha_dt"] >= corte
+        else:
+            f["incluir"] = True
+        f.pop("_fecha_dt", None)  # no mostrar la columna auxiliar
+
+    # reordenar para que 'incluir' salga primero
+    filas = [{"incluir": f["incluir"], "fecha": f["fecha"], "reporta": f["reporta"],
+              "rival": f["rival"], "marcador": f["marcador"],
+              "mensaje_original": f["mensaje_original"]} for f in filas]
+
     col_cfg = {
         "incluir": st.column_config.CheckboxColumn("Cargar", default=True),
         "mensaje_original": st.column_config.TextColumn("Mensaje original", disabled=True),
@@ -207,7 +271,7 @@ def render(jugadores: list[str] | None = None):
 
     editadas = st.data_editor(
         filas, use_container_width=True, num_rows="dynamic",
-        column_config=col_cfg, key="wa_editor",
+        column_config=col_cfg, key=f"wa_editor_{ss.wa_key}",
     )
 
     seleccionadas = [f for f in editadas if f.get("incluir")]
