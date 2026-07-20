@@ -336,10 +336,27 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    n_categorias = st.number_input(
-        "Número de categorías",
-        min_value=2, max_value=8, value=4, step=2,
+    modo_pareo = st.radio(
+        "Formato de la fecha",
+        options=["clasico", "fases"],
+        format_func=lambda m: (
+            "🎾 Clásico · 2 partidos (interno + cruce)" if m == "clasico"
+            else "🔥 Fases · 3 partidos (todo interno)"
+        ),
+        help=("Clásico: 4 categorías, 1 partido interno + 1 cruce por jugador. "
+              "Fases: 3 grupos grandes (ej: 15/12/12), 3 partidos dentro del grupo; "
+              "si el grupo es impar, un jugador juega 4 para calzar la paridad."),
     )
+    if modo_pareo == "clasico":
+        n_categorias = st.number_input(
+            "Número de categorías",
+            min_value=2, max_value=8, value=4, step=2,
+        )
+    else:
+        n_categorias = 3  # fases fijas: A/B/C
+    modo_anterior = st.session_state.historial.get("modo_ultimo")
+    if modo_anterior and modo_anterior != modo_pareo:
+        st.caption(f"ℹ️ La última jornada se generó en modo **{modo_anterior}**.")
 
 
 # ============================================================================
@@ -377,7 +394,7 @@ if not jugadores_db:
 
 # Convertir jugadores de BD al formato que espera pairing.py
 jugadores = [{"Ranking": j["ranking"], "Jugador": j["nombre"], "performance": j.get("performance") or 0, "puntos_base": j.get("puntos_base") or 0} for j in jugadores_db]
-categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias))
+categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias), modo=modo_pareo)
 
 
 # ============================================================================
@@ -397,22 +414,24 @@ tab_ronda, tab_resultados, tab_ranking, tab_perfiles, tab_torneos, tab_jugadores
 #  TAB 1: Generar Ronda
 # ----------------------------------------------------------------------------
 with tab_ronda:
-    st.subheader("👥 Categorías detectadas")
+    _seccion_estado = "fases_internas" if modo_pareo == "fases" else "internas"
+    _etiqueta_grupo = "Fase" if modo_pareo == "fases" else "Categoría"
+    st.subheader("👥 " + ("Fases detectadas" if modo_pareo == "fases" else "Categorías detectadas"))
     cols = st.columns(len(categorias))
     for col, (nombre, lista) in zip(cols, categorias.items()):
         with col:
-            estado_int = st.session_state.historial.get("internas", {}).get(nombre, {})
+            estado_int = st.session_state.historial.get(_seccion_estado, {}).get(nombre, {})
             ronda_int = estado_int.get("ronda_actual", 0)
             ciclo_int = estado_int.get("ciclo", 1)
             st.metric(
-                label=f"Categoría {nombre} · {len(lista)} jug.",
+                label=f"{_etiqueta_grupo} {nombre} · {len(lista)} jug.",
                 value=f"Ronda {ronda_int}",
                 delta=f"Ciclo {ciclo_int} · #{lista[0]['Ranking']}–#{lista[-1]['Ranking']}",
             )
 
-    with st.expander("Ver listado completo por categoría"):
+    with st.expander("Ver listado completo por " + ("fase" if modo_pareo == "fases" else "categoría")):
         for nombre, lista in categorias.items():
-            st.markdown(f"**Categoría {nombre}** ({len(lista)} jugadores)")
+            st.markdown(f"**{_etiqueta_grupo} {nombre}** ({len(lista)} jugadores)")
             st.dataframe(pd.DataFrame(lista)[["Ranking", "Jugador"]], hide_index=True, use_container_width=True)
 
     st.divider()
@@ -425,7 +444,7 @@ with tab_ronda:
     with col_gen:
         if st.session_state.es_admin:
             if st.button("🎯 Generar siguiente ronda", type="primary", use_container_width=True):
-                resultados = siguiente_ronda_completa(categorias, st.session_state.historial)
+                resultados = siguiente_ronda_completa(categorias, st.session_state.historial, modo=modo_pareo)
                 nuevos = registrar_partidos_generados(st.session_state.historial, resultados)
                 st.session_state.ultima_ronda = resultados
                 guardar_historial(st.session_state.historial)
@@ -457,7 +476,11 @@ with tab_ronda:
             st.info("🔐 Solo el administrador puede generar rondas.")
 
     with col_info:
-        st.caption("Cada ronda incluye partidos internos + cruzados para todas las categorías.")
+        if modo_pareo == "fases":
+            st.caption("Cada jugador juega 3 partidos dentro de su fase. "
+                       "Si una fase es impar, un jugador juega 4 para calzar la paridad.")
+        else:
+            st.caption("Cada ronda incluye partidos internos + cruzados para todas las categorías.")
 
     if st.session_state.ultima_ronda:
         st.subheader("🎯 Última ronda generada")
@@ -1778,3 +1801,4 @@ with tab_whatsapp:
         importar_whatsapp.render(jugadores=nombres)
 
 render_footer()
+
