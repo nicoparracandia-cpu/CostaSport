@@ -392,8 +392,31 @@ if not jugadores_db:
 
 
 
-# Convertir jugadores de BD al formato que espera pairing.py
-jugadores = [{"Ranking": j["ranking"], "Jugador": j["nombre"], "performance": j.get("performance") or 0, "puntos_base": j.get("puntos_base") or 0} for j in jugadores_db]
+# Convertir jugadores de BD al formato que espera pairing.py.
+# IMPORTANTE: el "Ranking" que se pasa al emparejador es la POSICIÓN ACTUAL
+# en la escalerilla (puntos acumulados), NO el ranking fijo de inscripción.
+# Así las fases/categorías y el reparto de partidos usan la tabla vigente.
+_jugadores_base = [
+    {
+        "Ranking": j["ranking"],  # ranking inicial: solo se usa como desempate final
+        "Jugador": j["nombre"],
+        "performance": j.get("performance") or 0,
+        "puntos_base": j.get("puntos_base") or 0,
+    }
+    for j in jugadores_db
+]
+# Posición vigente = orden de calcular_ranking (Puntos → Performance → Ranking inicial)
+_df_actual = calcular_ranking(st.session_state.historial, _jugadores_base)
+_pos_actual = {row["Jugador"]: int(row["Pos."]) for _, row in _df_actual.iterrows()}
+jugadores = [
+    {
+        "Ranking": _pos_actual.get(j["nombre"], j["ranking"]),  # ← posición actual
+        "Jugador": j["nombre"],
+        "performance": j.get("performance") or 0,
+        "puntos_base": j.get("puntos_base") or 0,
+    }
+    for j in jugadores_db
+]
 categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias), modo=modo_pareo)
 
 
@@ -1801,4 +1824,3 @@ with tab_whatsapp:
         importar_whatsapp.render(jugadores=nombres)
 
 render_footer()
-
