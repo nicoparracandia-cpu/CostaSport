@@ -265,12 +265,17 @@ def formatear_marcador(resultado: dict) -> str:
 
 def deshacer_ultima_jornada(historial: dict) -> tuple[bool, str]:
     """
-    Revierte la última jornada generada (sorteo):
-    - Elimina los partidos de la última generación (mismo fecha_generado).
-    - Retrocede los contadores de ronda/ciclo de cada bloque.
-    - Quita los pares del registro anti-repetición ('pares_cruce').
+    Revierte la última jornada generada (sorteo), en cualquier modo
+    (clásico o fases).
 
-    No permite deshacer si algún partido de esa jornada ya tiene resultado.
+    Seguridad: NO permite deshacer si algún partido de esa jornada ya
+    tiene resultado registrado (hay que borrar esos resultados primero).
+
+    Mecanismo: usa el snapshot que pairing.py guarda automáticamente al
+    generar (restaura contadores y partidos de forma exacta). Si el
+    historial es antiguo y no tiene snapshot, cae a la reversión manual
+    (solo válida para jornadas del modo clásico).
+
     Retorna (exito, mensaje).
     """
     partidos = historial.get("partidos", [])
@@ -285,6 +290,29 @@ def deshacer_ultima_jornada(historial: dict) -> tuple[bool, str]:
         return False, (f"No se puede deshacer: {len(con_resultado)} partido(s) de la "
                        f"última jornada ya tienen resultado registrado. "
                        f"Borra esos resultados primero.")
+
+    # --- Vía preferida: snapshot guardado por pairing al generar ---
+    from pairing import revertir_ultima_jornada
+    n_antes = len(partidos)
+    if revertir_ultima_jornada(historial):
+        eliminados = n_antes - len(historial.get("partidos", []))
+        return True, (f"Se deshizo la última jornada: "
+                      f"{eliminados} partidos eliminados.")
+
+    # --- Fallback (historiales antiguos sin snapshot, modo clásico) ---
+    return _deshacer_manual_clasico(historial, de_la_jornada, ultima_fecha)
+
+
+def _deshacer_manual_clasico(historial: dict, de_la_jornada: list[dict],
+                             ultima_fecha: str) -> tuple[bool, str]:
+    """Reversión manual paso-a-paso (lógica original). Solo sabe retroceder
+    contadores del modo clásico ('internas'/'cruces', avance de a 1)."""
+    if any(p["fecha_generado"] == ultima_fecha and p["tipo"] == "Interno"
+           and historial.get("fases_internas", {}).get(p["bloque"]) for p in de_la_jornada):
+        return False, ("No se pudo deshacer: la jornada parece del modo fases "
+                       "pero no hay snapshot disponible.")
+
+    partidos = historial.get("partidos", [])
 
     # 1) Retroceder contadores de ronda por bloque
     bloques_vistos = set()
@@ -301,14 +329,13 @@ def deshacer_ultima_jornada(historial: dict) -> tuple[bool, str]:
         ciclo = p["ciclo_bloque"]
         total = estado.get("total_rondas", ronda)
         if ronda <= 1 and ciclo > 1:
-            # La generación había iniciado un ciclo nuevo: volver al final del anterior
             historial[seccion][bloque] = {"ronda_actual": total, "ciclo": ciclo - 1,
                                           "total_rondas": total}
         else:
             historial[seccion][bloque] = {"ronda_actual": ronda - 1, "ciclo": ciclo,
                                           "total_rondas": total}
 
-    # 2) Quitar pares del registro anti-repetición (una ocurrencia por partido)
+    # 2) Quitar pares del registro anti-repetición (formato antiguo)
     registro = historial.get("pares_cruce", {})
     for p in de_la_jornada:
         if p["tipo"] != "Cruzado":
