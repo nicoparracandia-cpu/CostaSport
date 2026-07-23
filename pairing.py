@@ -213,7 +213,7 @@ def _clave(a: dict, b: dict) -> tuple:
 #  Deshacer última jornada (snapshot de un nivel)
 # ============================================================================
 
-_CLAVES_ESTADO = ("internas", "cruces", "fases_internas", "partidos")
+_CLAVES_ESTADO = ("internas", "cruces", "fases_internas", "partidos", "modo_ultimo")
 
 
 def _guardar_snapshot(historial: dict) -> None:
@@ -479,17 +479,27 @@ def _jornada_fase(jugadores: list[dict], idx: int, veces, pares_fecha: set) -> t
 
     nota = ""
     if len(byes) == 3:
-        # El que juega 4 (doble) = el de PEOR ranking (mayor número).
-        # Al fijarlo, las dos parejas quedan forzadas: el doble enfrenta
-        # a los otros dos byes, así ellos completan sus 3 partidos.
-        doble = max(byes, key=lambda p: p["Ranking"])
-        otros = [b for b in byes if b is not doble]
-        for otro in otros:
-            parejas.append((doble, otro))
-            pares_fecha.add(_clave(doble, otro))
-        nota = (f"⚖️ Fase impar: {doble['Jugador']} (#{doble['Ranking']}) juega 4 "
-                f"esta fecha para calzar la paridad, enfrentando a "
-                f"{otros[0]['Jugador']} y {otros[1]['Jugador']}.")
+        import itertools
+        candidatos = []
+        for (i, j) in itertools.combinations(range(3), 2):
+            k = 3 - i - j
+            for rival in (i, j):
+                par1 = _clave(byes[i], byes[j])
+                par2 = _clave(byes[k], byes[rival])
+                costo = (
+                    (par1 in pares_fecha) + (par2 in pares_fecha),
+                    veces.get(par1, 0) + veces.get(par2, 0),
+                )
+                candidatos.append((costo, i, j, k, rival))
+        _, i, j, k, rival = min(candidatos)
+        parejas.append((byes[i], byes[j]))
+        parejas.append((byes[k], byes[rival]))
+        pares_fecha.add(_clave(byes[i], byes[j]))
+        pares_fecha.add(_clave(byes[k], byes[rival]))
+        doble = byes[rival]
+        nota = (f"F. impar: {byes[i]['Jugador']}, {byes[j]['Jugador']} y "
+                f"{byes[k]['Jugador']} completan con partidos extra; "
+                f"{doble['Jugador']} juega 4 esta fecha para calzar la paridad.")
     elif byes:
         for a, b in zip(byes[0::2], byes[1::2]):
             parejas.append((a, b))
@@ -554,6 +564,7 @@ def siguiente_ronda_completa(categorias: dict[str, list[dict]], historial: dict,
     convence, revertir_ultima_jornada(historial) la deshace por completo.
     """
     _guardar_snapshot(historial)
+    historial["modo_ultimo"] = modo  # formato con que se generó la última jornada
     if modo == "fases":
         return _jornada_fases(categorias, historial)
     return _jornada_clasico(categorias, historial)
