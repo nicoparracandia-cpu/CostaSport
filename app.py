@@ -421,7 +421,11 @@ jugadores = [
 # --- Ranking VIVO: las fases se arman con la posicion actual por puntos ---
 # (asi el sorteo siempre refleja la tabla real, no la foto guardada en la BD)
 try:
-    _df_rank = calcular_ranking(st.session_state.historial, jugadores)
+    _todos_bd = get_todos_jugadores()
+    _base_rk = [{"Jugador": t["nombre"], "Ranking": t["ranking"],
+                 "puntos_base": t.get("puntos_base") or 0,
+                 "performance": t.get("performance") or 0} for t in _todos_bd]
+    _df_rank = calcular_ranking(st.session_state.historial, _base_rk)
     _pos_actual = {str(r["Jugador"]): int(r["Pos."]) for _, r in _df_rank.iterrows()}
     for _j in jugadores:
         _j["Ranking"] = _pos_actual.get(_j["Jugador"], _j["Ranking"])
