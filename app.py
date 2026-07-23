@@ -417,6 +417,18 @@ jugadores = [
     }
     for j in jugadores_db
 ]
+
+# --- Ranking VIVO: las fases se arman con la posicion actual por puntos ---
+# (asi el sorteo siempre refleja la tabla real, no la foto guardada en la BD)
+try:
+    _df_rank = calcular_ranking(st.session_state.historial, jugadores)
+    _pos_actual = {str(r["Jugador"]): int(r["Pos."]) for _, r in _df_rank.iterrows()}
+    for _j in jugadores:
+        _j["Ranking"] = _pos_actual.get(_j["Jugador"], _j["Ranking"])
+    jugadores.sort(key=lambda x: x["Ranking"])
+except Exception as _e:
+    st.warning(f"No se pudo aplicar el ranking vivo, usando ranking de la BD: {_e}")
+
 categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias), modo=modo_pareo)
 
 
