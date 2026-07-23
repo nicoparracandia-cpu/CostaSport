@@ -1669,6 +1669,37 @@ with tab_jugadores:
 
     st.divider()
 
+    # --- Descargar Excel de jugadores (BD + ranking vivo, para auditoria) ---
+    if todos:
+        try:
+            _base = [{"Jugador": j["nombre"], "Ranking": j["ranking"],
+                      "puntos_base": j.get("puntos_base") or 0,
+                      "performance": j.get("performance") or 0} for j in todos]
+            _df_vivo = calcular_ranking(st.session_state.historial, _base)
+            _pos_viva = {str(r["Jugador"]): int(r["Pos."]) for _, r in _df_vivo.iterrows()}
+            _pts_vivo = {str(r["Jugador"]): int(r["Puntos"]) for _, r in _df_vivo.iterrows()}
+        except Exception:
+            _pos_viva, _pts_vivo = {}, {}
+        _df_exp = pd.DataFrame([{
+            "Ranking BD": j["ranking"],
+            "Jugador": j["nombre"],
+            "Activo": "Si" if j["activo"] else "No",
+            "Puntos base": j.get("puntos_base") or 0,
+            "Performance": j.get("performance") or 0,
+            "Pos. viva (todos)": _pos_viva.get(j["nombre"], ""),
+            "Puntos actuales": _pts_vivo.get(j["nombre"], ""),
+        } for j in todos]).sort_values("Ranking BD")
+        _buf = io.BytesIO()
+        with pd.ExcelWriter(_buf, engine="openpyxl") as _w:
+            _df_exp.to_excel(_w, index=False, sheet_name="Jugadores")
+        st.download_button(
+            "📥 Descargar Excel de jugadores",
+            data=_buf.getvalue(),
+            file_name=f"jugadores_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
     st.markdown("#### Lista completa")
     st.caption("Solo los jugadores activos participan en la escalerilla.")
 
