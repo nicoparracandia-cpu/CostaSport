@@ -450,32 +450,86 @@ def _jornada_clasico(categorias: dict[str, list[dict]], historial: dict) -> list
 #  MODO FASES: 3 rondas internas por fecha
 # ============================================================================
 
+def _emparejar_grupo_fecha(grupo: list[dict], veces, pares_fecha: set) -> list[tuple]:
+    """Empareja un grupo PAR minimizando repeticiones históricas y
+    prohibiendo rematches dentro de la misma fecha (costo alto)."""
+    n = len(grupo)
+    if n == 0:
+        return []
+
+    def costo(a, b):
+        c = veces.get(_clave(a, b), 0)
+        if _clave(a, b) in pares_fecha:
+            c += 1000  # jamás repetir dentro de la fecha si hay alternativa
+        return c
+
+    def resolver(umbral):
+        resultado = []
+
+        def backtrack(restantes):
+            if not restantes:
+                return True
+            i = restantes[0]
+            orden = sorted(restantes[1:], key=lambda k: costo(grupo[i], grupo[k]))
+            for k in orden:
+                if costo(grupo[i], grupo[k]) >= umbral:
+                    continue
+                resultado.append((grupo[i], grupo[k]))
+                if backtrack([r for r in restantes[1:] if r != k]):
+                    return True
+                resultado.pop()
+            return False
+
+        if backtrack(list(range(n))):
+            return list(resultado)
+        return None
+
+    for umbral in (1, 2, 3, 5, 10, 1001, 1002, 1005, 2000):
+        sol = resolver(umbral)
+        if sol is not None:
+            return sol
+    return []
+
+
 def _jornada_fase(jugadores: list[dict], idx: int, veces, pares_fecha: set) -> tuple[list[tuple], str]:
     """
-    Toma PARTIDOS_POR_FECHA rondas consecutivas del round-robin.
+    Genera los 3 partidos por jugador de la fase ELIGIENDO rivales que
+    minimicen repeticiones contra TODO el historial (cualquier modo),
+    sin rematches dentro de la misma fecha.
 
-    - Fase PAR: rondas limpias → todos con exactamente 3 partidos.
-    - Fase IMPAR: cada ronda deja 1 'bye' (3 byes distintos). Los 3 se
-      emparejan entre sí: dos completan sus 3 partidos y UNO juega 4.
-      El que juega 4 (doble) es SIEMPRE el de peor ranking (mayor número).
+    - Fase PAR: 3 rondas de emparejamiento -> todos con exactamente 3.
+    - Fase IMPAR: en cada ronda descansa un jugador distinto (el mas
+      "quemado": con mas rivales ya repetidos en la fase). Los 3 que
+      descansaron se emparejan al final con 2 partidos extra y UNO
+      juega 4 para calzar la paridad.
     """
-    todas = generar_todas_las_rondas_internas(jugadores)
-    total = len(todas)
-    if total == 0:
+    n = len(jugadores)
+    if n < 2:
         return [], ""
 
-    n_rondas = min(PARTIDOS_POR_FECHA, total)
     parejas: list[tuple] = []
     byes: list[dict] = []
-    for r in range(n_rondas):
-        for a, b in todas[(idx + r) % total]:
-            if a is None:
-                byes.append(b)
-            elif b is None:
-                byes.append(a)
-            else:
-                parejas.append((a, b))
-                pares_fecha.add(_clave(a, b))
+    veces_local = dict(veces)  # copia de trabajo para ir sumando esta fecha
+
+    for _r in range(PARTIDOS_POR_FECHA):
+        grupo = list(jugadores)
+        if n % 2 == 1:
+            # Descansa el jugador (aun sin bye hoy) con mas historial
+            # acumulado contra su propia fase: postergarlo minimiza repes.
+            ya_bye = {b["Jugador"] for b in byes}
+            candidatos_bye = [j for j in grupo if j["Jugador"] not in ya_bye]
+            def quemado(j):
+                return sum(veces_local.get(_clave(j, o), 0)
+                           for o in grupo if o["Jugador"] != j["Jugador"])
+            bye = max(candidatos_bye, key=lambda j: (quemado(j), j["Ranking"]))
+            byes.append(bye)
+            grupo = [j for j in grupo if j["Jugador"] != bye["Jugador"]]
+
+        ronda = _emparejar_grupo_fecha(grupo, veces_local, pares_fecha)
+        for a, b in ronda:
+            parejas.append((a, b))
+            pares_fecha.add(_clave(a, b))
+            veces_local[_clave(a, b)] = veces_local.get(_clave(a, b), 0) + 1
 
     nota = ""
     if len(byes) == 3:
@@ -488,7 +542,7 @@ def _jornada_fase(jugadores: list[dict], idx: int, veces, pares_fecha: set) -> t
                 par2 = _clave(byes[k], byes[rival])
                 costo = (
                     (par1 in pares_fecha) + (par2 in pares_fecha),
-                    veces.get(par1, 0) + veces.get(par2, 0),
+                    veces_local.get(par1, 0) + veces_local.get(par2, 0),
                 )
                 candidatos.append((costo, i, j, k, rival))
         _, i, j, k, rival = min(candidatos)
@@ -497,7 +551,7 @@ def _jornada_fase(jugadores: list[dict], idx: int, veces, pares_fecha: set) -> t
         pares_fecha.add(_clave(byes[i], byes[j]))
         pares_fecha.add(_clave(byes[k], byes[rival]))
         doble = byes[rival]
-        nota = (f"F. impar: {byes[i]['Jugador']}, {byes[j]['Jugador']} y "
+        nota = (f"Fase impar: {byes[i]['Jugador']}, {byes[j]['Jugador']} y "
                 f"{byes[k]['Jugador']} completan con partidos extra; "
                 f"{doble['Jugador']} juega 4 esta fecha para calzar la paridad.")
     elif byes:
