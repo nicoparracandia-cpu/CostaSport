@@ -121,11 +121,13 @@ def filtrar_partidos(
     jugadores: list[str] | None = None,
     fases: list[str] | None = None,
     ciclos: list[int] | None = None,
-    incluir_sin_resultado: bool = False,
+    incluir_no_jugados: bool = False,
+    incluir_pendientes: bool = False,
 ) -> list[dict]:
     """
     Filtros combinables sobre historial["partidos"].
-    Sin ningún filtro → historial completo (partidos con resultado).
+    Sin ningún filtro → partidos resueltos (jugados y W.O.). Los partidos
+    no jugados y los pendientes se suman con sus flags respectivos.
     """
     jugadores = set(jugadores or [])
     fases = set(fases or [])
@@ -134,7 +136,10 @@ def filtrar_partidos(
     salida = []
     for p in historial.get("partidos", []):
         res = p.get("resultado")
-        if not incluir_sin_resultado and (res is None or res["tipo"] == "no_jugado"):
+        if res is None:
+            if not incluir_pendientes:
+                continue
+        elif res["tipo"] == "no_jugado" and not incluir_no_jugados:
             continue
         if fases and p.get("bloque") not in fases:
             continue
@@ -502,6 +507,8 @@ def descripcion_filtros(
     jugadores: list[str] | None,
     fases: list[str] | None,
     ciclos: list[int] | None,
+    incluir_no_jugados: bool = False,
+    incluir_pendientes: bool = False,
 ) -> str:
     """Texto legible con los filtros aplicados (subtítulo del PDF / caption UI)."""
     partes = []
@@ -515,4 +522,7 @@ def descripcion_filtros(
         partes.append(f"Fases: {', '.join(fases)}")
     if ciclos:
         partes.append(f"Ciclos: {', '.join(str(c) for c in ciclos)}")
-    return " · ".join(partes) if partes else "Historial completo · sin filtros"
+    extra = [t for t, on in (("no jugados", incluir_no_jugados),
+                             ("pendientes", incluir_pendientes)) if on]
+    base = " · ".join(partes) if partes else "Historial completo · sin filtros"
+    return f"{base} · incluye {' y '.join(extra)}" if extra else base

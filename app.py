@@ -1016,9 +1016,16 @@ with tab_historial:
                 help="Temporada interna: cada vuelta completa del round-robin de la fase.",
             )
 
-            incluir_sin_resultado = st.checkbox(
-                "Incluir partidos pendientes y no jugados",
+            c_i1, c_i2 = st.columns(2)
+            incluir_no_jugados = c_i1.checkbox(
+                "Incluir partidos no jugados",
+                key="hist_incluir_no_jugados",
+                help="Partidos cerrados sin disputarse (sin acuerdo, lluvia, etc.).",
+            )
+            incluir_pendientes = c_i2.checkbox(
+                "Incluir partidos pendientes",
                 key="hist_incluir_pendientes",
+                help="Partidos generados que todavía no tienen resultado cargado.",
             )
 
         partidos_filtrados = filtrar_partidos(
@@ -1028,10 +1035,14 @@ with tab_historial:
             jugadores=jugadores_sel,
             fases=fases_sel,
             ciclos=ciclos_sel,
-            incluir_sin_resultado=incluir_sin_resultado,
+            incluir_no_jugados=incluir_no_jugados,
+            incluir_pendientes=incluir_pendientes,
         )
         df_hist = partidos_a_dataframe(partidos_filtrados)
-        texto_filtros = descripcion_filtros(f_desde, f_hasta, jugadores_sel, fases_sel, ciclos_sel)
+        texto_filtros = descripcion_filtros(
+            f_desde, f_hasta, jugadores_sel, fases_sel, ciclos_sel,
+            incluir_no_jugados, incluir_pendientes,
+        )
 
         # ── Resumen del jugador (solo con UN jugador seleccionado) ──
         df_resumen_hist = None
