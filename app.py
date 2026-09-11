@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import json
 import base64
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -40,6 +40,21 @@ from bracket import (
     generar_pdf_bracket,
 )
 from bracket_pdf import generar_pdf_bracket_visual
+from historial_export import (
+    fases_disponibles,
+    ciclos_disponibles,
+    jugadores_del_historial,
+    filtrar_partidos,
+    partidos_a_dataframe,
+    calcular_estadisticas,
+    resumen_a_dataframe,
+    texto_racha,
+    texto_rival_top,
+    descripcion_filtros,
+    exportar_csv,
+    exportar_excel,
+    exportar_pdf,
+)
 from torneos import (
     get_torneo_activo, get_todos_torneos, crear_torneo, finalizar_torneo, eliminar_torneo,
     calcular_puntos_torneo, aplicar_puntos_al_ranking,
@@ -439,10 +454,11 @@ categorias = dividir_en_categorias(jugadores, n_categorias=int(n_categorias), mo
 # ============================================================================
 #  Pestañas
 # ============================================================================
-tab_ronda, tab_resultados, tab_ranking, tab_perfiles, tab_torneos, tab_jugadores, tab_whatsapp = st.tabs([
+tab_ronda, tab_resultados, tab_ranking, tab_historial, tab_perfiles, tab_torneos, tab_jugadores, tab_whatsapp = st.tabs([
     "🎯 Generar Ronda",
     "📝 Cargar Resultados",
     "🏆 Ranking",
+    "📥 Descargar historial",
     "👤 Perfiles",
     "🏅 Torneos",
     "⚙️ Jugadores",
@@ -949,7 +965,152 @@ with tab_ranking:
                             st.dataframe(pd.DataFrame(_filas), hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------------------------------
-#  TAB 4: Perfiles de jugadores
+#  TAB 4: Descargar historial
+# ----------------------------------------------------------------------------
+with tab_historial:
+    st.subheader("📥 Descargar historial de resultados")
+
+    _hist = st.session_state.historial
+    _nombres_hist = jugadores_del_historial(_hist)
+    _fases_hist = fases_disponibles(_hist)
+    _ciclos_hist = ciclos_disponibles(_hist)
+
+    if not _hist.get("partidos"):
+        st.info("Aún no hay partidos en el historial.")
+    else:
+        with st.expander("🔎 Filtros de alcance", expanded=True):
+            st.caption("Los filtros se combinan entre sí. Sin ninguno seleccionado se descarga el historial completo.")
+
+            c_f1, c_f2 = st.columns([1, 2])
+            with c_f1:
+                usar_fechas = st.checkbox("Filtrar por rango de fechas", key="hist_usar_fechas")
+            with c_f2:
+                if usar_fechas:
+                    rango = st.date_input(
+                        "Desde / hasta",
+                        value=(date.today().replace(month=1, day=1), date.today()),
+                        format="DD/MM/YYYY",
+                        key="hist_rango_fechas",
+                    )
+                else:
+                    rango = ()
+
+            if usar_fechas and isinstance(rango, (tuple, list)) and len(rango) == 2:
+                f_desde, f_hasta = rango
+            elif usar_fechas and isinstance(rango, date):
+                f_desde, f_hasta = rango, None
+            else:
+                f_desde = f_hasta = None
+
+            c_f3, c_f4, c_f5 = st.columns(3)
+            jugadores_sel = c_f3.multiselect(
+                "Jugador(es)", options=_nombres_hist, key="hist_jugadores",
+                help="Puedes seleccionar más de uno. El resumen de estadísticas solo aparece con un único jugador.",
+            )
+            fases_sel = c_f4.multiselect(
+                "Fase(s)", options=_fases_hist, key="hist_fases",
+                help="Fases del esquema 15/12/12 (A, B, C) del modo fases, o categorías y cruces (A-B, C-D) del modo clásico.",
+            )
+            ciclos_sel = c_f5.multiselect(
+                "Ciclo(s)", options=_ciclos_hist, key="hist_ciclos",
+                help="Temporada interna: cada vuelta completa del round-robin de la fase.",
+            )
+
+            incluir_sin_resultado = st.checkbox(
+                "Incluir partidos pendientes y no jugados",
+                key="hist_incluir_pendientes",
+            )
+
+        partidos_filtrados = filtrar_partidos(
+            _hist,
+            fecha_desde=f_desde,
+            fecha_hasta=f_hasta,
+            jugadores=jugadores_sel,
+            fases=fases_sel,
+            ciclos=ciclos_sel,
+            incluir_sin_resultado=incluir_sin_resultado,
+        )
+        df_hist = partidos_a_dataframe(partidos_filtrados)
+        texto_filtros = descripcion_filtros(f_desde, f_hasta, jugadores_sel, fases_sel, ciclos_sel)
+
+        # ── Resumen del jugador (solo con UN jugador seleccionado) ──
+        df_resumen_hist = None
+        if len(jugadores_sel) == 1:
+            stats_hist = calcular_estadisticas(partidos_filtrados, jugadores_sel[0])
+            if stats_hist["pj"] == 0:
+                st.info(f"{jugadores_sel[0]} no tiene partidos jugados con estos filtros.")
+            else:
+                df_resumen_hist = resumen_a_dataframe(stats_hist)
+                st.markdown(f"#### 📊 Resumen de {jugadores_sel[0]}")
+                r1, r2, r3, r4 = st.columns(4)
+                r1.metric("Partidos jugados", stats_hist["pj"])
+                r2.metric("Victorias", stats_hist["victorias"])
+                r3.metric("Derrotas", stats_hist["derrotas"])
+                r4.metric("% victorias", f"{stats_hist['pct_victorias']:.1f}%")
+                r5, r6, r7, r8 = st.columns(4)
+                if stats_hist["hay_sets"]:
+                    r5.metric("Sets ganados", stats_hist["sets_ganados"])
+                    r6.metric("Sets perdidos", stats_hist["sets_perdidos"])
+                else:
+                    r5.metric("Sets ganados", "—")
+                    r6.metric("Sets perdidos", "—")
+                r7.metric("Racha actual", texto_racha(stats_hist))
+                r8.metric("Fases", ", ".join(stats_hist["fases"]) or "—")
+                st.caption(f"**Rival más enfrentado:** {texto_rival_top(stats_hist)}")
+                if not stats_hist["hay_sets"]:
+                    st.caption("Sin detalle de sets en el histórico filtrado (solo W.O. o partidos sin marcador).")
+        elif len(jugadores_sel) > 1:
+            st.caption("ℹ️ El resumen de estadísticas solo se calcula al filtrar por un único jugador.")
+
+        # ── Detalle ──
+        st.markdown("#### 📋 Detalle de partidos")
+        st.caption(f"{len(df_hist)} partido(s) · {texto_filtros}")
+        if df_hist.empty:
+            st.info("Ningún partido coincide con los filtros seleccionados.")
+        else:
+            st.dataframe(df_hist, hide_index=True, use_container_width=True)
+
+            st.divider()
+            formato = st.radio(
+                "Formato de descarga",
+                options=["CSV", "Excel (.xlsx)", "PDF"],
+                horizontal=True,
+                key="hist_formato",
+            )
+            sello = datetime.now().strftime("%Y%m%d_%H%M")
+            base_nombre = f"costa_sport_historial_{sello}"
+            if formato == "CSV":
+                datos = exportar_csv(df_hist, df_resumen_hist)
+                st.download_button(
+                    label="⬇️ Descargar CSV",
+                    data=datos,
+                    file_name=f"{base_nombre}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            elif formato == "Excel (.xlsx)":
+                datos = exportar_excel(df_hist, df_resumen_hist)
+                st.download_button(
+                    label="⬇️ Descargar Excel",
+                    data=datos,
+                    file_name=f"{base_nombre}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
+            else:
+                titulo_pdf = (f"Historial · {jugadores_sel[0]}" if len(jugadores_sel) == 1
+                              else "Historial de resultados")
+                datos = exportar_pdf(df_hist, df_resumen_hist, titulo_pdf, texto_filtros)
+                st.download_button(
+                    label="⬇️ Descargar PDF",
+                    data=datos,
+                    file_name=f"{base_nombre}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+
+# ----------------------------------------------------------------------------
+#  TAB 5: Perfiles de jugadores
 # ----------------------------------------------------------------------------
 with tab_perfiles:
     st.subheader("👤 Perfil de jugador")
@@ -1106,7 +1267,7 @@ with tab_perfiles:
                     st.dataframe(pd.DataFrame(filas), hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------------------------------
-#  TAB 5: Torneos
+#  TAB 6: Torneos
 # ----------------------------------------------------------------------------
 with tab_torneos:
     st.subheader("🏅 Torneos")
@@ -1654,7 +1815,7 @@ with tab_torneos:
                             st.markdown(f"🏆 {nombre_participante(gan, tipo_t)} — {marc}")
 
 # ----------------------------------------------------------------------------
-#  TAB 6: Gestión de Jugadores
+#  TAB 7: Gestión de Jugadores
 # ----------------------------------------------------------------------------
 with tab_jugadores:
     if not st.session_state.es_admin:
@@ -1861,7 +2022,7 @@ with tab_jugadores:
                     st.error(f"Error al agregar: {e}")
 
 # ----------------------------------------------------------------------------
-#  TAB 7: Importar desde WhatsApp
+#  TAB 8: Importar desde WhatsApp
 # ----------------------------------------------------------------------------
 with tab_whatsapp:
     if not st.session_state.es_admin:
