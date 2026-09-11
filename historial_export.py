@@ -40,7 +40,7 @@ LOGO_PATH = Path("assets/logo.png")
 
 # Columnas del detalle que van al PDF (el resto solo a CSV/Excel).
 COLUMNAS_PDF = [
-    "Fecha", "Fase", "Ronda", "Jugador 1", "Jugador 2",
+    "Fecha", "Ronda", "Jugador 1", "Jugador 2",
     "Ganador", "Marcador", "Estado",
 ]
 
@@ -167,7 +167,6 @@ def partidos_a_dataframe(partidos: list[dict]) -> pd.DataFrame:
         filas.append({
             "ID": p["id"],
             "Fecha": fecha.strftime("%d/%m/%Y") if fecha else "—",
-            "Fase": p.get("bloque", "—"),
             "Tipo": p.get("tipo", "—"),
             "Ronda": p.get("ronda_bloque", "—"),
             "Ciclo": p.get("ciclo_bloque", "—"),
@@ -184,7 +183,7 @@ def partidos_a_dataframe(partidos: list[dict]) -> pd.DataFrame:
             "Games J2": g2,
         })
     df = pd.DataFrame(filas, columns=[
-        "ID", "Fecha", "Fase", "Tipo", "Ronda", "Ciclo",
+        "ID", "Fecha", "Tipo", "Ronda", "Ciclo",
         "Ranking 1", "Jugador 1", "Ranking 2", "Jugador 2",
         "Estado", "Ganador", "Marcador",
         "Sets J1", "Sets J2", "Games J1", "Games J2",
@@ -467,7 +466,7 @@ def exportar_pdf(
         ]
         ancho_util = page_w - doc.leftMargin - doc.rightMargin
         pesos = {
-            "Fecha": 1.0, "Fase": 0.5, "Ronda": 0.5, "Jugador 1": 2.0,
+            "Fecha": 1.0, "Ronda": 0.5, "Jugador 1": 2.0,
             "Jugador 2": 2.0, "Ganador": 2.0, "Marcador": 2.2, "Estado": 0.9,
         }
         total_peso = sum(pesos.get(c, 1.0) for c in cols)
