@@ -232,10 +232,10 @@ def render(jugadores: list[str] | None = None):
         )
     else:
         corte = None
-    if c2.button("☑️ Marcar todos", use_container_width=True, key="wa_all"):
+    if c2.button("☑️ Marcar todos", width="stretch", key="wa_all"):
         ss.wa_override = True
         ss.wa_key += 1
-    if c3.button("☐ Desmarcar todos", use_container_width=True, key="wa_none"):
+    if c3.button("☐ Desmarcar todos", width="stretch", key="wa_none"):
         ss.wa_override = False
         ss.wa_key += 1
     # si cambia la fecha de corte, volver al modo "por fecha" y recargar
@@ -270,7 +270,7 @@ def render(jugadores: list[str] | None = None):
         col_cfg["rival"] = st.column_config.SelectboxColumn("Rival", options=jugadores)
 
     editadas = st.data_editor(
-        filas, use_container_width=True, num_rows="dynamic",
+        filas, width="stretch", num_rows="dynamic",
         column_config=col_cfg, key=f"wa_editor_{ss.wa_key}",
     )
 

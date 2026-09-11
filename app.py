@@ -239,20 +239,20 @@ def _guardar_y_rerun():
 # ============================================================================
 with st.sidebar:
     if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), use_container_width=True)
+        st.image(str(LOGO_PATH), width="stretch")
 
     st.divider()
 
     # ── Login / Logout Admin ──
     if st.session_state.es_admin:
         st.success("🔐 Modo Admin activo")
-        if st.button("Cerrar sesión admin", use_container_width=True):
+        if st.button("Cerrar sesión admin", width="stretch"):
             st.session_state.es_admin = False
             st.rerun()
     else:
         with st.expander("🔐 Acceso Admin"):
             pwd = st.text_input("Contraseña", type="password", key="pwd_input")
-            if st.button("Ingresar", use_container_width=True):
+            if st.button("Ingresar", width="stretch"):
                 if pwd == st.secrets.get("ADMIN_PASSWORD", ""):
                     st.session_state.es_admin = True
                     st.rerun()
@@ -273,7 +273,7 @@ with st.sidebar:
                         columns={"ranking": "Ranking", "nombre": "Jugador"}
                     ),
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                 )
 
         archivo_excel = st.file_uploader(
@@ -287,7 +287,7 @@ with st.sidebar:
                 if "Ranking" not in df_excel.columns or "Jugador" not in df_excel.columns:
                     st.error("Columnas requeridas: 'Ranking' y 'Jugador'.")
                 else:
-                    if st.button("💾 Guardar jugadores en BD", type="primary", use_container_width=True):
+                    if st.button("💾 Guardar jugadores en BD", type="primary", width="stretch"):
                         with st.spinner("Guardando..."):
                             actualizar_jugadores_desde_excel(df_excel.to_dict("records"))
                             st.session_state.jugadores_supabase = get_jugadores()
@@ -317,7 +317,7 @@ with st.sidebar:
                     with col_imp1:
                         st.info(f"{len(partidos_nuevos)} partidos")
                     with col_imp2:
-                        if st.button("⬆️ Importar", type="primary", use_container_width=True, key="btn_importar"):
+                        if st.button("⬆️ Importar", type="primary", width="stretch", key="btn_importar"):
                             # Fusionar: reemplazar partidos existentes o agregar nuevos
                             historial_actual = st.session_state.historial
                             ids_actuales = {p["id"] for p in historial_actual.get("partidos", [])}
@@ -341,9 +341,9 @@ with st.sidebar:
                 data=historial_a_json(st.session_state.historial),
                 file_name=f"historial_{timestamp}.json",
                 mime="application/json",
-                use_container_width=True,
+                width="stretch",
             )
-        if st.button("🔄 Reiniciar todo", use_container_width=True):
+        if st.button("🔄 Reiniciar todo", width="stretch"):
             st.session_state.historial = {}
             st.session_state.ultima_ronda = None
             guardar_historial({})
@@ -487,7 +487,7 @@ with tab_ronda:
     with st.expander("Ver listado completo por " + ("fase" if modo_pareo == "fases" else "categoría")):
         for nombre, lista in categorias.items():
             st.markdown(f"**{_etiqueta_grupo} {nombre}** ({len(lista)} jugadores)")
-            st.dataframe(pd.DataFrame(lista)[["Ranking", "Jugador"]], hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(lista)[["Ranking", "Jugador"]], hide_index=True, width="stretch")
 
     st.divider()
 
@@ -498,7 +498,7 @@ with tab_ronda:
     col_gen, col_info = st.columns([1, 3])
     with col_gen:
         if st.session_state.es_admin:
-            if st.button("🎯 Generar siguiente ronda", type="primary", use_container_width=True):
+            if st.button("🎯 Generar siguiente ronda", type="primary", width="stretch"):
                 resultados = siguiente_ronda_completa(categorias, st.session_state.historial, modo=modo_pareo)
                 nuevos = registrar_partidos_generados(st.session_state.historial, resultados)
                 st.session_state.ultima_ronda = resultados
@@ -508,13 +508,13 @@ with tab_ronda:
             # --- Deshacer última jornada (confirmación en 2 pasos) ---
             if st.session_state.historial.get("partidos"):
                 if not st.session_state.get("confirmar_deshacer"):
-                    if st.button("↩️ Deshacer último sorteo", use_container_width=True):
+                    if st.button("↩️ Deshacer último sorteo", width="stretch"):
                         st.session_state.confirmar_deshacer = True
                         st.rerun()
                 else:
                     st.warning("⚠️ Se eliminarán los partidos de la última jornada generada.")
                     c_si, c_no = st.columns(2)
-                    if c_si.button("✅ Sí, deshacer", use_container_width=True):
+                    if c_si.button("✅ Sí, deshacer", width="stretch"):
                         ok, msg = deshacer_ultima_jornada(st.session_state.historial)
                         st.session_state.confirmar_deshacer = False
                         if ok:
@@ -524,7 +524,7 @@ with tab_ronda:
                         else:
                             st.error(msg)
                         st.rerun()
-                    if c_no.button("❌ Cancelar", use_container_width=True):
+                    if c_no.button("❌ Cancelar", width="stretch"):
                         st.session_state.confirmar_deshacer = False
                         st.rerun()
         else:
@@ -551,7 +551,7 @@ with tab_ronda:
         c1.metric("Total partidos", total)
         c2.metric("Internos", len(df_ronda[(df_ronda["Tipo"] == "Interno") & (df_ronda["Jugador 2"] != "DESCANSA")]))
         c3.metric("Cruzados", len(df_ronda[df_ronda["Tipo"] == "Cruzado"]))
-        st.dataframe(df_ronda, hide_index=True, use_container_width=True)
+        st.dataframe(df_ronda, hide_index=True, width="stretch")
 
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -787,7 +787,7 @@ with tab_resultados:
                             placeholder="Ej: El jugador no se presentó, avisó por WhatsApp, etc.",
                         )
 
-                    submitted = st.form_submit_button("💾 Guardar resultado", type="primary", use_container_width=True)
+                    submitted = st.form_submit_button("💾 Guardar resultado", type="primary", width="stretch")
 
                     if submitted:
                         try:
@@ -879,7 +879,7 @@ with tab_ranking:
         st.dataframe(
             df_ranking,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Pos.": st.column_config.NumberColumn(width="small"),
                 "Puntos": st.column_config.NumberColumn(format="%d"),
@@ -962,7 +962,7 @@ with tab_ranking:
                                 _rstr = "✅ WO+" if _gan == jugador_perfil else "❌ WO-"
                             _filas.append({"Ronda": p.get("ronda_bloque","—"), "Rival": _rival, "Resultado": _rstr, "Marcador": _marc})
                         if _filas:
-                            st.dataframe(pd.DataFrame(_filas), hide_index=True, use_container_width=True)
+                            st.dataframe(pd.DataFrame(_filas), hide_index=True, width="stretch")
 
 # ----------------------------------------------------------------------------
 #  TAB 4: Descargar historial
@@ -1068,7 +1068,7 @@ with tab_historial:
         if df_hist.empty:
             st.info("Ningún partido coincide con los filtros seleccionados.")
         else:
-            st.dataframe(df_hist, hide_index=True, use_container_width=True)
+            st.dataframe(df_hist, hide_index=True, width="stretch")
 
             st.divider()
             formato = st.radio(
@@ -1086,7 +1086,7 @@ with tab_historial:
                     data=datos,
                     file_name=f"{base_nombre}.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                 )
             elif formato == "Excel (.xlsx)":
                 datos = exportar_excel(df_hist, df_resumen_hist)
@@ -1095,7 +1095,7 @@ with tab_historial:
                     data=datos,
                     file_name=f"{base_nombre}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
+                    width="stretch",
                 )
             else:
                 titulo_pdf = (f"Historial · {jugadores_sel[0]}" if len(jugadores_sel) == 1
@@ -1106,7 +1106,7 @@ with tab_historial:
                     data=datos,
                     file_name=f"{base_nombre}.pdf",
                     mime="application/pdf",
-                    use_container_width=True,
+                    width="stretch",
                 )
 
 # ----------------------------------------------------------------------------
@@ -1227,7 +1227,7 @@ with tab_perfiles:
                                     placeholder=placeholder,
                                     key=f"caract_{campo}_{jug_data['id']}"
                                 )
-                            if st.form_submit_button("💾 Guardar características", type="primary", use_container_width=True):
+                            if st.form_submit_button("💾 Guardar características", type="primary", width="stretch"):
                                 guardar_caracteristicas(jug_data["id"], nuevas, telefono=nuevo_tel)
                                 st.success("✅ Características guardadas.")
                                 st.rerun()
@@ -1264,7 +1264,7 @@ with tab_perfiles:
                             "Marcador": marcador,
                         })
                     import pandas as pd
-                    st.dataframe(pd.DataFrame(filas), hide_index=True, use_container_width=True)
+                    st.dataframe(pd.DataFrame(filas), hide_index=True, width="stretch")
 
 # ----------------------------------------------------------------------------
 #  TAB 6: Torneos
@@ -1317,7 +1317,7 @@ with tab_torneos:
                     if t_formato == "grupos_eliminacion":
                         n_grupos = st.number_input("Número de grupos", min_value=2, max_value=8, value=4)
 
-                    if st.form_submit_button("🏅 Crear torneo", type="primary", use_container_width=True):
+                    if st.form_submit_button("🏅 Crear torneo", type="primary", width="stretch"):
                         if not t_nombre.strip():
                             st.error("Ingresa un nombre para el torneo.")
                         else:
@@ -1376,9 +1376,9 @@ with tab_torneos:
         col_th.markdown(f"## {t['nombre']}")
         col_th.markdown(f"**{tipo_t.title()}** · {formato_t.replace('_', ' ').title()}")
         if st.session_state.es_admin:
-            if col_tf.button("🏁 Finalizar", use_container_width=True):
+            if col_tf.button("🏁 Finalizar", width="stretch"):
                 st.session_state["confirm_finalizar_torneo"] = t["id"]
-            if col_td.button("🗑️ Eliminar", use_container_width=True):
+            if col_td.button("🗑️ Eliminar", width="stretch"):
                 st.session_state["confirm_eliminar_torneo"] = t["id"]
 
         if st.session_state.get("confirm_finalizar_torneo") == t["id"] and st.session_state.es_admin:
@@ -1396,7 +1396,7 @@ with tab_torneos:
                 puntos_preview = {}
                 st.info("ℹ️ Torneo de dobles — no aplica puntos al ranking de la escalerilla.")
             col_sf1, col_sf2 = st.columns(2)
-            if col_sf1.button("✅ Confirmar y finalizar", type="primary", use_container_width=True, key="btn_conf_fin"):
+            if col_sf1.button("✅ Confirmar y finalizar", type="primary", width="stretch", key="btn_conf_fin"):
                 if tipo_t == "singles" and puntos_preview:
                     act, no_enc = aplicar_puntos_al_ranking(sb, puntos_preview)
                     st.session_state.jugadores_supabase = get_jugadores()
@@ -1410,7 +1410,7 @@ with tab_torneos:
                     st.session_state.pop("confirm_finalizar_torneo", None)
                     st.success("✅ Torneo de dobles finalizado. Sin impacto en el ranking de la escalerilla.")
                 st.rerun()
-            if col_sf2.button("Cancelar", use_container_width=True, key="btn_canc_fin"):
+            if col_sf2.button("Cancelar", width="stretch", key="btn_canc_fin"):
                 st.session_state.pop("confirm_finalizar_torneo", None)
                 st.rerun()
 
@@ -1418,12 +1418,12 @@ with tab_torneos:
         if st.session_state.get("confirm_eliminar_torneo") == t["id"]:
             st.error(f"⚠️ ¿Seguro que quieres eliminar **{t['nombre']}** y todos sus datos? Esta acción no se puede deshacer.")
             col_si, col_no = st.columns(2)
-            if col_si.button("Sí, eliminar", type="primary", use_container_width=True):
+            if col_si.button("Sí, eliminar", type="primary", width="stretch"):
                 eliminar_torneo(sb, t["id"])
                 st.session_state.pop("confirm_eliminar_torneo", None)
                 st.success("Torneo eliminado.")
                 st.rerun()
-            if col_no.button("Cancelar", use_container_width=True):
+            if col_no.button("Cancelar", width="stretch"):
                 st.session_state.pop("confirm_eliminar_torneo", None)
                 st.rerun()
 
@@ -1450,7 +1450,7 @@ with tab_torneos:
                         "Participante": nombre_participante(p, tipo_t),
                         "Grupo": p.get("grupo") or "—",
                     })
-                st.dataframe(pd.DataFrame(filas_p), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(filas_p), hide_index=True, width="stretch")
 
             if st.session_state.es_admin:
                 st.divider()
@@ -1476,7 +1476,7 @@ with tab_torneos:
                     )
 
                     # Aplicar seeds automáticos por ranking
-                    if st.button("✅ Asignar seeds por ranking", use_container_width=True,
+                    if st.button("✅ Asignar seeds por ranking", width="stretch",
                                  disabled=bool(partidos), key="btn_asignar_seeds"):
                         # Ordenar participantes por ranking (seed actual o posición en lista)
                         partic_ordenados = sorted(participantes, key=lambda x: x.get("seed") or 999)
@@ -1513,7 +1513,7 @@ with tab_torneos:
                 st.divider()
                 col_sorteo, col_info_s = st.columns([1, 2])
                 with col_sorteo:
-                    if st.button("🎲 Hacer sorteo", type="primary", use_container_width=True,
+                    if st.button("🎲 Hacer sorteo", type="primary", width="stretch",
                                  disabled=bool(partidos),
                                  help="Genera el orden del bracket respetando seeds"):
                         # Recargar participantes con seeds actualizados
@@ -1559,9 +1559,9 @@ with tab_torneos:
                                 cols_show.append("Jugador2")
                             if "Seed" in df_part.columns:
                                 cols_show.append("Seed")
-                            st.dataframe(df_part[cols_show].head(10), hide_index=True, use_container_width=True)
+                            st.dataframe(df_part[cols_show].head(10), hide_index=True, width="stretch")
                             st.caption(f"{len(df_part)} {'parejas' if tipo_t == 'dobles' else 'jugadores'} en el archivo")
-                            if st.button("⬆️ Importar todos", type="primary", use_container_width=True, key="btn_import_part"):
+                            if st.button("⬆️ Importar todos", type="primary", width="stretch", key="btn_import_part"):
                                 importados = 0
                                 errores_imp = []
                                 for _, row in df_part.iterrows():
@@ -1619,7 +1619,7 @@ with tab_torneos:
 
                     seed_val = col_a3.number_input("Seed", min_value=1, max_value=64, value=len(participantes)+1, key="add_seed")
 
-                    if st.form_submit_button("➕ Agregar", type="primary", use_container_width=True):
+                    if st.form_submit_button("➕ Agregar", type="primary", width="stretch"):
                         nombre_j1 = (j1_ext or "").strip() if j1_sel == "— Externo —" else j1_sel
                         nombre_j2 = None
                         if tipo_t == "dobles":
@@ -1634,7 +1634,7 @@ with tab_torneos:
                 if participantes and not partidos:
                     st.divider()
                     st.markdown("#### Generar partidos")
-                    if st.button("🎯 Generar bracket / partidos", type="primary", use_container_width=True, key="btn_gen_bracket"):
+                    if st.button("🎯 Generar bracket / partidos", type="primary", width="stretch", key="btn_gen_bracket"):
                         if formato_t == "eliminacion":
                             generar_bracket_eliminacion(sb, t["id"], participantes, tipo_t, config)
                         elif formato_t == "round_robin":
@@ -1706,7 +1706,7 @@ with tab_torneos:
                                 sets.append({"games_1": int(g1), "games_2": int(g2)})
 
                             col_f1, col_f2 = st.columns(2)
-                            if col_f1.form_submit_button("💾 Guardar", type="primary", use_container_width=True):
+                            if col_f1.form_submit_button("💾 Guardar", type="primary", width="stretch"):
                                 s1, s2, s3 = sets
                                 sets_1 = sum(1 for s in [s1, s2] if s["games_1"] > s["games_2"])
                                 sets_2 = sum(1 for s in [s1, s2] if s["games_2"] > s["games_1"])
@@ -1720,7 +1720,7 @@ with tab_torneos:
                                 st.session_state.pop("partido_torneo_sel", None)
                                 st.success("✅ Resultado guardado.")
                                 st.rerun()
-                            if col_f2.form_submit_button("Cancelar", use_container_width=True):
+                            if col_f2.form_submit_button("Cancelar", width="stretch"):
                                 st.session_state.pop("partido_torneo_sel", None)
                                 st.rerun()
 
@@ -1756,7 +1756,7 @@ with tab_torneos:
                 col_pdf1, col_pdf2 = st.columns([2, 3])
                 with col_pdf1:
                     subtitulo_pdf = f"{tipo_t.title()} · {formato_t.replace('_', ' ').title()} · {datetime.now().strftime('%d/%m/%Y')}"
-                    if st.button("📄 Generar PDF brandeado", type="primary", use_container_width=True):
+                    if st.button("📄 Generar PDF brandeado", type="primary", width="stretch"):
                         with st.spinner("Generando PDF..."):
                             try:
                                 pdf_bytes = generar_pdf_bracket_visual(
@@ -1780,7 +1780,7 @@ with tab_torneos:
                         data=st.session_state["pdf_bracket"],
                         file_name=f"costa_sport_{t['nombre'].replace(' ','_')}_{timestamp}.pdf",
                         mime="application/pdf",
-                        use_container_width=True,
+                        width="stretch",
                     )
                     st.caption("Comparte el PDF por WhatsApp para que todos vean el cuadro actualizado.")
 
@@ -1799,7 +1799,7 @@ with tab_torneos:
                             st.markdown(f"#### Grupo {grupo}")
                         tabla = calcular_tabla_grupo(partidos, grupo or "A", tipo_t)
                         if tabla:
-                            st.dataframe(pd.DataFrame(tabla), hide_index=True, use_container_width=True)
+                            st.dataframe(pd.DataFrame(tabla), hide_index=True, width="stretch")
                         st.divider()
 
                 # Ganadores por fase para eliminación
@@ -1862,7 +1862,7 @@ with tab_jugadores:
             data=_buf.getvalue(),
             file_name=f"jugadores_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
         )
 
     st.markdown("#### Lista completa")
@@ -1895,13 +1895,13 @@ with tab_jugadores:
                 col_nombre.markdown(j["nombre"])
                 if j["activo"]:
                     col_estado.success("✅ Activo")
-                    if col_accion.button("Desactivar", key=f"toggle_{j['id']}", use_container_width=True):
+                    if col_accion.button("Desactivar", key=f"toggle_{j['id']}", width="stretch"):
                         set_jugador_activo(j["id"], False)
                         st.session_state.jugadores_supabase = get_jugadores()
                         st.rerun()
                 else:
                     col_estado.error("❌ Inactivo")
-                    if col_accion.button("Reactivar", key=f"toggle_{j['id']}", use_container_width=True):
+                    if col_accion.button("Reactivar", key=f"toggle_{j['id']}", width="stretch"):
                         set_jugador_activo(j["id"], True)
                         st.session_state.jugadores_supabase = get_jugadores()
                         st.rerun()
@@ -1931,8 +1931,8 @@ with tab_jugadores:
                 if not cols_req.issubset(set(df_pts.columns)):
                     st.error(f"Columnas requeridas: {cols_req}. Encontradas: {list(df_pts.columns)}")
                 else:
-                    st.dataframe(df_pts[["Jugador", "Puntaje", "Performance"]].head(10), hide_index=True, use_container_width=True)
-                    if st.button("💾 Importar puntos y performance", type="primary", use_container_width=True, key="btn_import_pts"):
+                    st.dataframe(df_pts[["Jugador", "Puntaje", "Performance"]].head(10), hide_index=True, width="stretch")
+                    if st.button("💾 Importar puntos y performance", type="primary", width="stretch", key="btn_import_pts"):
                         sb = get_supabase()
                         actualizados = 0
                         no_encontrados = []
@@ -1987,7 +1987,7 @@ with tab_jugadores:
                     format="%.2f",
                     key="input_perf"
                 )
-                if st.form_submit_button("💾 Guardar", type="primary", use_container_width=True):
+                if st.form_submit_button("💾 Guardar", type="primary", width="stretch"):
                     sb = get_supabase()
                     sb.table("jugadores").update({
                         "puntos_base": int(nuevo_pts),
@@ -2003,7 +2003,7 @@ with tab_jugadores:
         col_n, col_r = st.columns([3, 1])
         nuevo_nombre = col_n.text_input("Nombre", placeholder="Ej: Juan Pérez")
         nuevo_ranking = col_r.number_input("Ranking", min_value=1, max_value=500, value=len(todos) + 1)
-        if st.form_submit_button("➕ Agregar jugador", type="primary", use_container_width=True):
+        if st.form_submit_button("➕ Agregar jugador", type="primary", width="stretch"):
             if not nuevo_nombre.strip():
                 st.error("Debes ingresar un nombre.")
             else:
