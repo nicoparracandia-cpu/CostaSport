@@ -54,6 +54,7 @@ from historial_export import (
     exportar_csv,
     exportar_excel,
     exportar_pdf,
+    exportar_ranking_pdf,
 )
 from torneos import (
     get_torneo_activo, get_todos_torneos, crear_torneo, finalizar_torneo, eliminar_torneo,
@@ -894,11 +895,24 @@ with tab_ranking:
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             df_ranking.to_excel(writer, index=False, sheet_name="Ranking")
         buffer.seek(0)
-        st.download_button(
+        _sello_rk = datetime.now().strftime("%Y%m%d_%H%M")
+        c_dl1, c_dl2 = st.columns(2)
+        c_dl1.download_button(
             label="📊 Descargar ranking en Excel",
             data=buffer,
-            file_name=f"costa_sport_ranking_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            file_name=f"costa_sport_ranking_{_sello_rk}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+        )
+        c_dl2.download_button(
+            label="📄 Descargar ranking en PDF",
+            data=exportar_ranking_pdf(
+                df_ranking,
+                subtitulo=f"{len(df_ranking)} jugadores · {total_partidos} partidos jugados",
+            ),
+            file_name=f"costa_sport_ranking_{_sello_rk}.pdf",
+            mime="application/pdf",
+            width="stretch",
         )
 
         st.divider()

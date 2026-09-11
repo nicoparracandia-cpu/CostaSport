@@ -534,3 +534,75 @@ def descripcion_filtros(
     extra = [t for t, on in (("no jugados", incluir_no_jugados),
                              ("pendientes", incluir_pendientes)) if on]
     return f"{base} · incluye {' y '.join(extra)}" if extra else base
+
+
+# ============================================================================
+#  Ranking en PDF
+# ============================================================================
+def exportar_ranking_pdf(
+    df_ranking: pd.DataFrame,
+    titulo: str = "Ranking de la temporada",
+    subtitulo: str = "",
+) -> bytes:
+    """PDF vertical con el listado del ranking: posición, jugador y puntos."""
+    buf = io.BytesIO()
+    page_w, page_h = A4
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=18 * mm, rightMargin=18 * mm,
+        topMargin=52, bottomMargin=16,
+        title=titulo, author="Costa Sport · Tennis Club",
+    )
+
+    base = getSampleStyleSheet()
+    st_vacio = ParagraphStyle(
+        "Vacio", parent=base["BodyText"],
+        fontName="Helvetica-Oblique", fontSize=8, alignment=TA_CENTER,
+    )
+
+    story = []
+    if df_ranking.empty:
+        story.append(Paragraph("Sin jugadores en el ranking.", st_vacio))
+    else:
+        # itertuples renombra "Pos." (no es identificador válido), así que
+        # se leen las columnas por nombre.
+        datos = [["Pos.", "Jugador", "Puntos"]]
+        for _, fila in df_ranking.iterrows():
+            datos.append([
+                str(int(fila["Pos."])),
+                str(fila["Jugador"]),
+                f"{int(fila['Puntos'])}",
+            ])
+
+        ancho_util = page_w - doc.leftMargin - doc.rightMargin
+        col_widths = [ancho_util * p for p in (0.18, 0.62, 0.20)]
+        t = Table(datos, colWidths=col_widths, repeatRows=1)
+        estilo = [
+            ("BACKGROUND", (0, 0), (-1, 0), C_DARK),
+            ("TEXTCOLOR", (0, 0), (-1, 0), C_BLUE),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("FONTNAME", (1, 1), (1, -1), "Helvetica-Bold"),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#C8D0E0")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [C_WHITE, colors.HexColor("#EEF3FA")]),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]
+        # Podio resaltado
+        for i in range(1, min(4, len(datos))):
+            estilo.append(("BACKGROUND", (0, i), (-1, i), C_YELLOW))
+        t.setStyle(TableStyle(estilo))
+        story.append(t)
+
+    def _marco(c, d):
+        _dibujar_marco(c, d, titulo, subtitulo)
+
+    doc.build(story, onFirstPage=_marco, onLaterPages=_marco)
+    buf.seek(0)
+    return buf.getvalue()
